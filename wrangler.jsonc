@@ -1,0 +1,20 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "holocovia",
+  "main": "src/index.ts",
+  // Must not exceed the newest date supported by the workerd bundled with wrangler and
+  // @cloudflare/vitest-plugin (workerd 1.20261023.1), so that tests and production use the same date.
+  "compatibility_date": "2026-10-23",
+  // Settings are managed in the Cloudflare dashboard ("Variables and Secrets") or via `wrangler secret put`.
+  // Do not add "vars" here; keep_vars prevents redeploys from overwriting them.
+  "keep_vars": true,
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "holocovia",
+      // TODO: Replace with the ID shown by `wrangler d1 create holocovia`.
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "drizzle/migrations"
+    }
+  ]
+}

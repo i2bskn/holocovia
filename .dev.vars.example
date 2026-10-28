@@ -1,0 +1,18 @@
+# Copy to .dev.vars for local development with `wrangler dev`.
+# Cookies use the Secure attribute and the __Host- prefix. Chrome and Firefox store them on
+# http://localhost, but Safari does not, so use Chrome or Firefox for local development.
+
+# "password" (default) or "oidc"
+AUTH_MODE=password
+
+# At least 32 characters.
+JWT_SECRET=change-me-to-a-random-string-of-32-chars-or-more
+
+# Required only when AUTH_MODE=oidc.
+# APP_ORIGIN=https://wiki.example.com
+# OIDC_ISSUER=https://idp.example.com
+# OIDC_CLIENT_ID=holocovia
+# OIDC_CLIENT_SECRET=dummy-secret
+
+# Optional allowlist for AUTH_MODE=oidc. Comma separated emails or domains.
+# ALLOWED_EMAILS=example.com,alice@example.org
