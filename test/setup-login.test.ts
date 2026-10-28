@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { countUsers, createInitialAdmin } from "../src/auth/users";
-import { createUser, db, PASSWORD, resetDb, send, sessionCookies, setCookies } from "./helpers";
+import { createUser, db, oidcEnv, PASSWORD, resetDb, send, sessionCookies, setCookies } from "./helpers";
 
 beforeEach(resetDb);
 
@@ -144,6 +144,12 @@ describe("password login", () => {
     expect(await res.text()).not.toContain("short");
     expect((await send("/api/v1/me", { env: { AUTH_MODE: "ldap" } })).status).toBe(500);
     expect((await send("/", { env: { AUTH_MODE: "oidc" } })).status).toBe(500);
+  });
+
+  it("returns 500 when OIDC_REQUIRE_EMAIL_VERIFIED is invalid", async () => {
+    const res = await send("/auth/login", { env: { ...oidcEnv, OIDC_REQUIRE_EMAIL_VERIFIED: "bogus" } });
+    expect(res.status).toBe(500);
+    expect(await res.text()).not.toContain("bogus");
   });
 });
 

@@ -1,9 +1,11 @@
 import { eq } from "drizzle-orm";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { env as workerEnv } from "cloudflare:workers";
 import { evaluateIdTokenClaims, isEmailVerified } from "../src/auth/oidc";
 import { base64UrlEncode } from "../src/auth/tokens";
 import { resolveOidcUser, type OidcIdentity } from "../src/auth/users";
 import { users } from "../src/db/schema";
+import { loadConfig, type Bindings } from "../src/env";
 import { createUser, db, OIDC_ORIGIN, oidcEnv, resetDb, send, sessionCookies, setCookies } from "./helpers";
 
 const ISSUER = oidcEnv.OIDC_ISSUER ?? "";
@@ -70,23 +72,85 @@ describe("resolveOidcUser", () => {
 
 describe("ID token claims", () => {
   it("requires email_verified to be the boolean true", () => {
-    expect(isEmailVerified({ email_verified: true })).toBe(true);
-    expect(isEmailVerified({ email_verified: false })).toBe(false);
-    expect(isEmailVerified({ email_verified: "true" })).toBe(false);
-    expect(isEmailVerified({})).toBe(false);
+    expect(isEmailVerified({ email_verified: true }, true)).toBe(true);
+    expect(isEmailVerified({ email_verified: false }, true)).toBe(false);
+    expect(isEmailVerified({ email_verified: "true" }, true)).toBe(false);
+    expect(isEmailVerified({}, true)).toBe(false);
+    expect(isEmailVerified({ email_verified: undefined }, true)).toBe(false);
+  });
+
+  it("accepts only a missing email_verified when it is not required", () => {
+    expect(isEmailVerified({ email_verified: true }, false)).toBe(true);
+    expect(isEmailVerified({}, false)).toBe(true);
+    expect(isEmailVerified({ email_verified: undefined }, false)).toBe(true);
+    expect(isEmailVerified({ email_verified: false }, false)).toBe(false);
+    expect(isEmailVerified({ email_verified: "true" }, false)).toBe(false);
+    expect(isEmailVerified({ email_verified: null }, false)).toBe(false);
   });
 
   it("evaluates email, email_verified and the allowlist", () => {
+    const opts = (allowedEmails: string) => ({ allowedEmails, requireEmailVerified: true });
     const base = { email: " Alice@Example.com ", email_verified: true, name: " Alice " };
-    expect(evaluateIdTokenClaims(base, "")).toEqual({ ok: true, email: "alice@example.com", name: "Alice" });
-    expect(evaluateIdTokenClaims({ ...base, name: "a".repeat(101) }, "")).toMatchObject({ ok: true, name: null });
-    expect(evaluateIdTokenClaims({ email_verified: true }, "")).toEqual({ ok: false, reason: "invalid_email" });
-    expect(evaluateIdTokenClaims({ ...base, email: "bad" }, "")).toEqual({ ok: false, reason: "invalid_email" });
-    expect(evaluateIdTokenClaims({ ...base, email_verified: false }, "")).toEqual({ ok: false, reason: "email_not_verified" });
-    expect(evaluateIdTokenClaims({ ...base, email_verified: "true" }, "")).toEqual({ ok: false, reason: "email_not_verified" });
-    expect(evaluateIdTokenClaims({ email: base.email }, "")).toEqual({ ok: false, reason: "email_not_verified" });
-    expect(evaluateIdTokenClaims(base, "other.com")).toEqual({ ok: false, reason: "not_allowed" });
-    expect(evaluateIdTokenClaims(base, "example.com")).toMatchObject({ ok: true });
+    expect(evaluateIdTokenClaims(base, opts(""))).toEqual({ ok: true, email: "alice@example.com", name: "Alice" });
+    expect(evaluateIdTokenClaims({ ...base, name: "a".repeat(101) }, opts(""))).toMatchObject({ ok: true, name: null });
+    expect(evaluateIdTokenClaims({ email_verified: true }, opts(""))).toEqual({ ok: false, reason: "invalid_email" });
+    expect(evaluateIdTokenClaims({ ...base, email: "bad" }, opts(""))).toEqual({ ok: false, reason: "invalid_email" });
+    expect(evaluateIdTokenClaims({ ...base, email_verified: false }, opts(""))).toEqual({
+      ok: false,
+      reason: "email_not_verified",
+    });
+    expect(evaluateIdTokenClaims({ ...base, email_verified: "true" }, opts(""))).toEqual({
+      ok: false,
+      reason: "email_not_verified",
+    });
+    expect(evaluateIdTokenClaims({ email: base.email }, opts(""))).toEqual({ ok: false, reason: "email_not_verified" });
+    expect(evaluateIdTokenClaims(base, opts("other.com"))).toEqual({ ok: false, reason: "not_allowed" });
+    expect(evaluateIdTokenClaims(base, opts("example.com"))).toMatchObject({ ok: true });
+  });
+
+  it("evaluates claims when email_verified is not required", () => {
+    const opts = (allowedEmails: string) => ({ allowedEmails, requireEmailVerified: false });
+    const base = { email: " Alice@Example.com ", name: " Alice " };
+    expect(evaluateIdTokenClaims(base, opts(""))).toEqual({ ok: true, email: "alice@example.com", name: "Alice" });
+    expect(evaluateIdTokenClaims({ ...base, email_verified: true }, opts(""))).toMatchObject({ ok: true });
+    for (const value of [false, "true", null]) {
+      expect(evaluateIdTokenClaims({ ...base, email_verified: value }, opts(""))).toEqual({
+        ok: false,
+        reason: "email_not_verified",
+      });
+    }
+    expect(evaluateIdTokenClaims({ ...base, email: "bad" }, opts(""))).toEqual({ ok: false, reason: "invalid_email" });
+    expect(evaluateIdTokenClaims({ ...base, email: "bad", email_verified: false }, opts(""))).toEqual({
+      ok: false,
+      reason: "invalid_email",
+    });
+    expect(evaluateIdTokenClaims(base, opts("other.com"))).toEqual({ ok: false, reason: "not_allowed" });
+  });
+});
+
+describe("loadConfig OIDC_REQUIRE_EMAIL_VERIFIED", () => {
+  const load = (overrides: Partial<Bindings>) => loadConfig({ ...workerEnv, ...oidcEnv, ...overrides } as Bindings);
+
+  it.each([
+    ["true", true],
+    ["false", false],
+    [undefined, true],
+    ["", true],
+  ])("accepts %j as requireEmailVerified=%j", (value, expected) => {
+    const result = load({ OIDC_REQUIRE_EMAIL_VERIFIED: value });
+    expect(result.ok).toBe(true);
+    expect(result.ok && result.config.oidc?.requireEmailVerified).toBe(expected);
+  });
+
+  it.each([["FALSE"], ["0"], [false as unknown as string]])("rejects %j", (value) => {
+    const result = load({ OIDC_REQUIRE_EMAIL_VERIFIED: value });
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.invalid).toContain("OIDC_REQUIRE_EMAIL_VERIFIED");
+  });
+
+  it("ignores the value in password mode", () => {
+    const result = loadConfig({ ...workerEnv, AUTH_MODE: "password", OIDC_REQUIRE_EMAIL_VERIFIED: "bogus" } as Bindings);
+    expect(result.ok).toBe(true);
   });
 });
 
@@ -167,8 +231,8 @@ describe("OIDC flow with a mocked IdP", () => {
 
   let pendingNonce = "";
 
-  async function startLogin(next = "/wiki") {
-    const res = await send(`${OIDC_ORIGIN}/auth/login?next=${encodeURIComponent(next)}`, { env: oidcEnv });
+  async function startLogin(next = "/wiki", env: Partial<Bindings> = oidcEnv) {
+    const res = await send(`${OIDC_ORIGIN}/auth/login?next=${encodeURIComponent(next)}`, { env });
     expect(res.status).toBe(302);
     const location = new URL(res.headers.get("Location") ?? "");
     pendingNonce = location.searchParams.get("nonce") ?? "";
@@ -177,9 +241,9 @@ describe("OIDC flow with a mocked IdP", () => {
     return { location, oidcCookie: oidcCookie?.value ?? "" };
   }
 
-  function callback(query: string, oidcCookie?: string) {
+  function callback(query: string, oidcCookie?: string, env: Partial<Bindings> = oidcEnv) {
     return send(`${OIDC_ORIGIN}/auth/oidc/callback?${query}`, {
-      env: oidcEnv,
+      env,
       cookies: oidcCookie ? { "__Host-holocovia_oidc": oidcCookie } : undefined,
     });
   }
@@ -252,6 +316,38 @@ describe("OIDC flow with a mocked IdP", () => {
     const res = await callback(`code=abc&state=${location.searchParams.get("state")}`, oidcCookie);
     expect(res.status).toBe(403);
     expect(await db.query.users.findMany()).toHaveLength(0);
+  });
+
+  it("signs in without email_verified when it is not required", async () => {
+    const env = { ...oidcEnv, OIDC_REQUIRE_EMAIL_VERIFIED: "false" };
+    idTokenClaims = { email: "alice@example.com", name: "Alice" };
+    const { location, oidcCookie } = await startLogin("/wiki", env);
+    const res = await callback(`code=abc&state=${location.searchParams.get("state")}`, oidcCookie, env);
+    expect(res.status).toBe(303);
+    expect(res.headers.get("Location")).toBe("/wiki");
+    expect(await db.query.users.findMany()).toHaveLength(1);
+  });
+
+  it("returns 403 for email_verified false even when it is not required", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const env = { ...oidcEnv, OIDC_REQUIRE_EMAIL_VERIFIED: "false" };
+    idTokenClaims = { ...idTokenClaims, email_verified: false };
+    const { location, oidcCookie } = await startLogin("/wiki", env);
+    const res = await callback(`code=abc&state=${location.searchParams.get("state")}`, oidcCookie, env);
+    expect(res.status).toBe(403);
+    expect(await db.query.users.findMany()).toHaveLength(0);
+    expect(warn).toHaveBeenCalledWith("oidc login rejected", { reason: "email_not_verified", email_verified: "boolean" });
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("alice@example.com");
+  });
+
+  it("logs only the type of a missing email_verified on rejection", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    idTokenClaims = { email: "alice@example.com", name: "Alice" };
+    const { location, oidcCookie } = await startLogin();
+    const res = await callback(`code=abc&state=${location.searchParams.get("state")}`, oidcCookie);
+    expect(res.status).toBe(403);
+    expect(warn).toHaveBeenCalledWith("oidc login rejected", { reason: "email_not_verified", email_verified: "undefined" });
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("alice@example.com");
   });
 
   it("returns 403 for emails outside the allowlist", async () => {

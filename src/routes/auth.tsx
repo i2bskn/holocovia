@@ -177,9 +177,15 @@ auth.get("/oidc/callback", requireMode("oidc"), async (c) => {
     return c.html(<ErrorPage message="ログインに失敗しました" />, 400);
   }
 
-  const evaluated = evaluateIdTokenClaims(claims, oidc.allowedEmails);
+  const evaluated = evaluateIdTokenClaims(claims, oidc);
   if (!evaluated.ok) {
-    console.warn("oidc login rejected", { reason: evaluated.reason });
+    // Log only the type of email_verified to tell a missing claim from false. Never log claim values.
+    console.warn(
+      "oidc login rejected",
+      evaluated.reason === "email_not_verified"
+        ? { reason: evaluated.reason, email_verified: typeof claims.email_verified }
+        : { reason: evaluated.reason },
+    );
     return c.html(<ErrorPage message="このアカウントではログインできません" />, 403);
   }
   const { iss, sub } = claims;

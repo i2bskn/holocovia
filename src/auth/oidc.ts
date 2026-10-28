@@ -135,7 +135,11 @@ export async function exchangeCode(
   return claims;
 }
 
-export function isEmailVerified(claims: Record<string, unknown>): boolean {
+// When requireEmailVerified is false, a missing email_verified claim is accepted.
+// A claim that is present must still be the boolean true.
+export function isEmailVerified(claims: Record<string, unknown>, requireEmailVerified: boolean): boolean {
+  const absent = !("email_verified" in claims) || claims.email_verified === undefined;
+  if (absent) return !requireEmailVerified;
   return claims.email_verified === true;
 }
 
@@ -144,11 +148,14 @@ export type ClaimsResult =
   | { ok: false; reason: "invalid_email" | "email_not_verified" | "not_allowed" };
 
 // Spec 6.4 steps 4-7. The email comes from the ID token only.
-export function evaluateIdTokenClaims(claims: Record<string, unknown>, allowedEmails: string): ClaimsResult {
+export function evaluateIdTokenClaims(
+  claims: Record<string, unknown>,
+  options: Pick<OidcConfig, "allowedEmails" | "requireEmailVerified">,
+): ClaimsResult {
   const email = normalizeEmail(claims.email);
   if (email === null) return { ok: false, reason: "invalid_email" };
-  if (!isEmailVerified(claims)) return { ok: false, reason: "email_not_verified" };
-  if (!isEmailAllowed(email, parseAllowlist(allowedEmails))) return { ok: false, reason: "not_allowed" };
+  if (!isEmailVerified(claims, options.requireEmailVerified)) return { ok: false, reason: "email_not_verified" };
+  if (!isEmailAllowed(email, parseAllowlist(options.allowedEmails))) return { ok: false, reason: "not_allowed" };
   const name = normalizeName(claims.name);
   return { ok: true, email, name: name.ok ? name.value : null };
 }

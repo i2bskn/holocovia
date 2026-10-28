@@ -8,12 +8,15 @@
   // Settings are managed in the Cloudflare dashboard ("Variables and Secrets") or via `wrangler secret put`.
   // Do not add "vars" here; keep_vars prevents redeploys from overwriting them.
   "keep_vars": true,
+  // Preview URLs would serve unmigrated code against the production D1 database.
+  "preview_urls": false,
+  "observability": { "enabled": true },
   "d1_databases": [
     {
       "binding": "DB",
+      // No database_id: `wrangler deploy` provisions the database automatically, or connects to an
+      // existing D1 database with this name in the account.
       "database_name": "holocovia",
-      // TODO: Replace with the ID shown by `wrangler d1 create holocovia`.
-      "database_id": "00000000-0000-0000-0000-000000000000",
       "migrations_dir": "drizzle/migrations"
     }
   ]

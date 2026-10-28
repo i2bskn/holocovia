@@ -10,6 +10,7 @@ export type Bindings = {
   OIDC_CLIENT_ID?: string;
   OIDC_CLIENT_SECRET?: string;
   ALLOWED_EMAILS?: string;
+  OIDC_REQUIRE_EMAIL_VERIFIED?: string;
 };
 
 export type AuthMode = "oidc" | "password";
@@ -20,6 +21,7 @@ export type OidcConfig = {
   clientId: string;
   clientSecret: string;
   allowedEmails: string;
+  requireEmailVerified: boolean;
 };
 
 export type Config = {
@@ -70,8 +72,17 @@ export function loadConfig(env: Bindings): ConfigResult {
     if (clientId === "") invalid.push("OIDC_CLIENT_ID");
     const clientSecret = env.OIDC_CLIENT_SECRET ?? "";
     if (clientSecret === "") invalid.push("OIDC_CLIENT_SECRET");
-    if (appOrigin !== null && issuer !== null) {
-      oidc = { appOrigin, issuer, clientId, clientSecret, allowedEmails: env.ALLOWED_EMAILS ?? "" };
+    const requireEmailVerified = parseRequireEmailVerified(env.OIDC_REQUIRE_EMAIL_VERIFIED);
+    if (requireEmailVerified === null) invalid.push("OIDC_REQUIRE_EMAIL_VERIFIED");
+    if (appOrigin !== null && issuer !== null && requireEmailVerified !== null) {
+      oidc = {
+        appOrigin,
+        issuer,
+        clientId,
+        clientSecret,
+        allowedEmails: env.ALLOWED_EMAILS ?? "",
+        requireEmailVerified,
+      };
     }
   }
 
@@ -79,6 +90,16 @@ export function loadConfig(env: Bindings): ConfigResult {
     return { ok: false, invalid };
   }
   return { ok: true, config: { authMode: mode as AuthMode, jwtSecret, oidc } };
+}
+
+// Unset, "" and "true" require email_verified. Only the exact string "false" relaxes it.
+// Any other value (including non-string values from JSON variables) is a configuration error.
+function parseRequireEmailVerified(value: unknown): boolean | null {
+  if (value === undefined) return true;
+  if (typeof value !== "string") return null;
+  if (value === "" || value === "true") return true;
+  if (value === "false") return false;
+  return null;
 }
 
 function parseAppOrigin(value: string | undefined): string | null {

@@ -16,3 +16,9 @@ JWT_SECRET=change-me-to-a-random-string-of-32-chars-or-more
 
 # Optional allowlist for AUTH_MODE=oidc. Comma separated emails or domains.
 # ALLOWED_EMAILS=example.com,alice@example.org
+
+# Optional for AUTH_MODE=oidc. Set to "false" only when the IdP does not send email_verified and every
+# login method of the IdP verifies emails (e.g. Cloudflare Access for SaaS with Google as the only login method).
+# Users are linked to existing accounts by email, so an unverified login method could take over an account.
+# When the claim is present it must still be true. Review this setting whenever OIDC_ISSUER changes.
+# OIDC_REQUIRE_EMAIL_VERIFIED=false
