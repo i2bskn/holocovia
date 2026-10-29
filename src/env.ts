@@ -1,8 +1,13 @@
+import type { OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import type { Db } from "./db/client";
 import type { UserRow } from "./db/schema";
 
 export type Bindings = {
   DB: D1Database;
+  OAUTH_KV: KVNamespace;
+  // Set by OAuthProvider before it calls the Hono app. Absent when the request origin cannot host
+  // OAuth (plain http on a non-loopback host), in which case the app is called directly.
+  OAUTH_PROVIDER?: OAuthHelpers;
   AUTH_MODE?: string;
   JWT_SECRET?: string;
   APP_ORIGIN?: string;

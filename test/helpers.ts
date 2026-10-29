@@ -1,10 +1,11 @@
+import { createExecutionContext } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { hashPassword } from "../src/auth/password";
 import { createDb } from "../src/db/client";
 import { pages, users, type PageRow, type UserRow } from "../src/db/schema";
 import type { Bindings } from "../src/env";
 import { insertPersonalSpaceStatement } from "../src/spaces/queries";
-import app from "../src/index";
+import worker from "../src/index";
 
 export const ORIGIN = "https://holocovia.test";
 export const OIDC_ORIGIN = "https://wiki.example.com";
@@ -36,6 +37,8 @@ export type RequestOptions = {
   form?: Record<string, string>;
   json?: unknown;
   env?: Partial<Bindings>;
+  // Passed to the Worker as is, without the per-request copy. Overrides env.
+  sharedEnv?: Cloudflare.Env;
   // Origin header for non-GET requests. Defaults to the request origin; null omits it.
   origin?: string | null;
 };
@@ -65,7 +68,8 @@ export async function send(url: string, options: RequestOptions = {}): Promise<R
     headers.set("Content-Type", "application/json");
   }
   const request = new Request(fullUrl, { method, headers, body, redirect: "manual" });
-  return app.fetch(request, { ...env, ...options.env });
+  // Through the Worker entry point (OAuthProvider), like production.
+  return worker.fetch(request, options.sharedEnv ?? { ...env, ...options.env }, createExecutionContext());
 }
 
 export type SetCookie = { value: string; maxAge: number | null; raw: string };

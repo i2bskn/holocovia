@@ -5,6 +5,9 @@
   // Must not exceed the newest date supported by the workerd bundled with wrangler and
   // @cloudflare/vitest-plugin (workerd 1.20261023.1), so that tests and production use the same date.
   "compatibility_date": "2026-10-23",
+  // Required for OAuth clients that use Client ID Metadata Documents: fetches of their metadata
+  // must not reach internal addresses.
+  "compatibility_flags": ["global_fetch_strictly_public"],
   // Settings are managed in the Cloudflare dashboard ("Variables and Secrets") or via `wrangler secret put`.
   // Do not add "vars" here; keep_vars prevents redeploys from overwriting them.
   "keep_vars": true,
@@ -18,6 +21,13 @@
       // existing D1 database with this name in the account.
       "database_name": "holocovia",
       "migrations_dir": "drizzle/migrations"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      // OAuth clients, grants and tokens for MCP. No id: like the D1 database, `wrangler deploy`
+      // provisions the namespace automatically.
+      "binding": "OAUTH_KV"
     }
   ]
 }

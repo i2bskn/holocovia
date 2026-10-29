@@ -9,6 +9,7 @@ import { apiError, requireMode, requireUser } from "../auth/middleware";
 import { hashPassword, verifyPassword } from "../auth/password";
 import { prepareNewSession, revokeUserSessionsQuery } from "../auth/sessions";
 import { isValidPassword } from "../auth/validate";
+import { revokeAllGrants } from "../mcp/grants";
 import { jsonBody, toApiUser } from "./api";
 
 const changeMyPasswordBody = jsonBody<ChangeMyPasswordRequest, ChangeMyPasswordRequest>((body, c) => {
@@ -33,6 +34,9 @@ const me = new Hono<AppEnv>()
       return apiError(c, 400, "invalid_current_password", "現在のパスワードが違います");
     }
 
+    // All MCP grants are revoked, unlike sessions, where the current one is kept.
+    // KV first: if it fails, D1 is unchanged and the request can be retried.
+    if (c.env.OAUTH_PROVIDER) await revokeAllGrants(c.env.OAUTH_PROVIDER, user.id);
     const db = c.get("db");
     const config = c.get("config");
     const now = clock.now();

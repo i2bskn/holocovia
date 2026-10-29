@@ -1,51 +1,49 @@
-import { Hono } from "hono";
-import type { AppEnv } from "./env";
-import {
-  apiError,
-  describeError,
-  isJsonPath,
-  loadConfigMiddleware,
-  sameOrigin,
-  securityHeaders,
-  unifyHost,
-} from "./auth/middleware";
-import auth from "./routes/auth";
-import home from "./routes/home";
-import me from "./routes/me";
-import pagesApi from "./routes/pages";
-import spacesApi from "./routes/spaces";
-import usersApi from "./routes/users";
-import { ErrorPage } from "./views/error";
+import app from "./app";
+import { loadConfig, type Bindings, type Config } from "./env";
+import { getOAuthProvider } from "./mcp/provider";
 
-const app = new Hono<AppEnv>();
+export type { AppType } from "./app";
 
-app.use("*", securityHeaders);
-app.use("*", loadConfigMiddleware);
-app.use("*", unifyHost);
-// Cookie-authenticated routes only. Future /mcp and OAuth endpoints must not use sameOrigin.
-app.use("/auth/*", sameOrigin);
-app.use("/api/v1/*", sameOrigin);
+// Paths served by OAuthProvider or the authorization page. They are never forwarded to another host.
+function isOAuthPath(path: string): boolean {
+  return (
+    path === "/mcp" ||
+    path.startsWith("/mcp/") ||
+    path.startsWith("/oauth/") ||
+    path.startsWith("/.well-known/") ||
+    path === "/authorize"
+  );
+}
 
-app.route("/", home);
-app.route("/auth", auth);
-const apiRoutes = app
-  .route("/api/v1/me", me)
-  .route("/api/v1/users", usersApi)
-  .route("/api/v1/spaces", spacesApi)
-  .route("/api/v1/pages", pagesApi);
+function isLoopbackHostname(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "[::1]" || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname);
+}
 
-// Types for hc<AppType>(). Only /api/v1/* is included.
-export type AppType = typeof apiRoutes;
+// The origin that hosts OAuth and MCP for this request, or null if the request cannot use them.
+function resolveOrigin(config: Config, url: URL): string | null {
+  if (config.oidc) return url.origin === config.oidc.appOrigin ? url.origin : null;
+  // OAuth requires https, except on loopback hosts for local development.
+  if (url.protocol === "https:" || (url.protocol === "http:" && isLoopbackHostname(url.hostname))) {
+    return url.origin;
+  }
+  return null;
+}
 
-app.notFound((c) => {
-  if (isJsonPath(c.req.path)) return apiError(c, 404, "not_found", "見つかりません");
-  return c.html(ErrorPage({ message: "ページが見つかりません" }), 404);
-});
+export default {
+  async fetch(request: Request, env: Bindings, ctx: ExecutionContext): Promise<Response> {
+    const result = loadConfig(env);
+    // The app answers with the same 500 as for any other path (loadConfigMiddleware).
+    if (!result.ok) return app.fetch(request, env, ctx);
 
-app.onError((error, c) => {
-  console.error("unhandled error", describeError(error));
-  if (isJsonPath(c.req.path)) return apiError(c, 500, "internal_error", "サーバーでエラーが発生しました");
-  return c.html(ErrorPage({ message: "サーバーでエラーが発生しました" }), 500);
-});
-
-export default app;
+    const url = new URL(request.url);
+    const origin = resolveOrigin(result.config, url);
+    if (origin === null) {
+      if (isOAuthPath(url.pathname)) return new Response(null, { status: 404 });
+      // In oidc mode, unifyHost redirects pages to APP_ORIGIN.
+      return app.fetch(request, env, ctx);
+    }
+    // A shallow copy per request: OAuthProvider sets env.OAUTH_PROVIDER only when it is missing,
+    // so a shared env would keep the helpers of the first origin.
+    return getOAuthProvider(origin).fetch(request, { ...env }, ctx);
+  },
+} satisfies ExportedHandler<Bindings>;

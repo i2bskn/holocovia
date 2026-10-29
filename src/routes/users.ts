@@ -15,6 +15,7 @@ import { hashPassword } from "../auth/password";
 import { revokeUserSessionsQuery } from "../auth/sessions";
 import { findUserById, isUniqueViolation } from "../auth/users";
 import { isRole, isValidPassword, normalizeEmail, normalizeName } from "../auth/validate";
+import { revokeAllGrants } from "../mcp/grants";
 import { insertPersonalSpaceStatement } from "../spaces/queries";
 import { jsonBody, toApiUser } from "./api";
 
@@ -84,6 +85,9 @@ const usersApi = new Hono<AppEnv>()
     const id = c.req.param("id");
     if (!(await findUserById(db, id))) return apiError(c, 404, "not_found", userNotFound);
 
+    // MCP grants first: if KV fails, D1 is unchanged and the request can be retried.
+    // OAUTH_PROVIDER is absent only on origins that cannot issue grants (see src/index.ts).
+    if (c.env.OAUTH_PROVIDER) await revokeAllGrants(c.env.OAUTH_PROVIDER, id);
     const now = clock.now();
     const passwordHash = await hashPassword(input.password);
     await db.batch([
@@ -96,6 +100,8 @@ const usersApi = new Hono<AppEnv>()
     const db = c.get("db");
     const id = c.req.param("id");
     if (!(await findUserById(db, id))) return apiError(c, 404, "not_found", userNotFound);
+    // MCP grants first: if KV fails, D1 is unchanged and the request can be retried.
+    if (c.env.OAUTH_PROVIDER) await revokeAllGrants(c.env.OAUTH_PROVIDER, id);
     await revokeUserSessionsQuery(db, id, clock.now()).run();
     return c.body(null, 204);
   })

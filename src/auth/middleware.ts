@@ -49,7 +49,7 @@ export const loadConfigMiddleware: MiddlewareHandler<AppEnv> = async (c, next) =
 };
 
 function isPagePath(path: string): boolean {
-  return path === "/" || path === "/auth" || path.startsWith("/auth/");
+  return path === "/" || path === "/auth" || path.startsWith("/auth/") || path === "/authorize";
 }
 
 export const securityHeaders: MiddlewareHandler<AppEnv> = async (c, next) => {

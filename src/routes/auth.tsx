@@ -39,7 +39,7 @@ function nextBaseOrigin(c: AppContext): string {
   return oidc ? oidc.appOrigin : new URL(c.req.url).origin;
 }
 
-function isPrefetch(c: AppContext): boolean {
+export function isPrefetch(c: AppContext): boolean {
   const purpose = `${c.req.header("Sec-Purpose") ?? ""} ${c.req.header("Purpose") ?? ""}`;
   return purpose.toLowerCase().includes("prefetch");
 }

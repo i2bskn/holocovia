@@ -1,6 +1,7 @@
+import { createExecutionContext } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
-import app from "../src/index";
+import worker from "../src/index";
 import { createUser, login, ORIGIN, resetDb, type SessionCookies } from "./helpers";
 
 let adminCookies: SessionCookies;
@@ -21,7 +22,7 @@ async function post(path: string, body: BodyInit | null, contentType: string | n
   });
   if (contentType !== null) headers.set("Content-Type", contentType);
   const request = new Request(new URL(path, ORIGIN), { method: "POST", headers, body, redirect: "manual" });
-  return app.fetch(request, env);
+  return worker.fetch(request, env, createExecutionContext());
 }
 
 const newUser = { email: "new@example.com", password: "a long enough password", role: "member" };
