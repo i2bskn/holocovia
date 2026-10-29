@@ -50,3 +50,36 @@ export type ResetPasswordRequest = {
 export type UpdateUserRequest = {
   role: Role;
 };
+
+export type SpaceKind = "everyone" | "admin" | "personal";
+
+export type Space = {
+  id: string;
+  kind: SpaceKind;
+  // null for personal spaces; clients decide the display name.
+  name: string | null;
+  // UNIX time in milliseconds.
+  created_at: number;
+  // UNIX time in milliseconds.
+  updated_at: number;
+};
+
+export type SpaceList = {
+  spaces: Space[];
+};
+
+// Personal spaces are created with their user and cannot be created here.
+export type CreateSpaceRequest = {
+  kind: "everyone" | "admin";
+  name: string;
+};
+
+// CreateSpaceRequest after validation. name is trimmed.
+export type CreateSpaceInput = {
+  kind: "everyone" | "admin";
+  name: string;
+};
+
+export type UpdateSpaceRequest = {
+  name: string;
+};

@@ -1,6 +1,7 @@
 import { and, eq, isNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { users, type UserRow } from "../db/schema";
+import { insertPersonalSpaceStatement } from "../spaces/queries";
 
 export function isUniqueViolation(error: unknown): boolean {
   for (let e: unknown = error; e instanceof Error; e = e.cause) {
@@ -22,19 +23,25 @@ export async function countUsers(db: Db): Promise<number> {
   return row?.count ?? 0;
 }
 
-// Creates the first admin only when there are no users, in a single statement.
-// Returns null if a user already exists.
+// Creates the first admin and their personal space only when there are no users, in one batch.
+// Returns null if a user already exists; the personal space statement then inserts nothing.
 export async function createInitialAdmin(
   db: Db,
   params: { email: string; name: string | null; passwordHash: string; now: number },
 ): Promise<UserRow | null> {
   const id = crypto.randomUUID();
   const { email, name, passwordHash, now } = params;
-  const result = await db.run(sql`
+  const d1 = db.$client;
+  const [userResult] = await d1.batch([
+    d1
+      .prepare(`
     INSERT INTO users (id, email, name, role, password_hash, oidc_issuer, oidc_subject, created_at, updated_at, last_login_at)
-    SELECT ${id}, ${email}, ${name}, 'admin', ${passwordHash}, NULL, NULL, ${now}, ${now}, NULL
-    WHERE NOT EXISTS (SELECT 1 FROM users)`);
-  if (result.meta.changes !== 1) return null;
+    SELECT ?, ?, ?, 'admin', ?, NULL, NULL, ?, ?, NULL
+    WHERE NOT EXISTS (SELECT 1 FROM users)`)
+      .bind(id, email, name, passwordHash, now, now),
+    insertPersonalSpaceStatement(d1, id, now),
+  ]);
+  if (userResult?.meta.changes !== 1) return null;
   return (await findUserById(db, id)) ?? null;
 }
 
@@ -101,11 +108,18 @@ async function tryResolveOidcUser(
   }
 
   const id = crypto.randomUUID();
+  const d1 = db.$client;
   try {
-    await db.run(sql`
+    // The personal space is created in the same batch, so a UNIQUE violation rolls back both.
+    await d1.batch([
+      d1
+        .prepare(`
       INSERT INTO users (id, email, name, role, password_hash, oidc_issuer, oidc_subject, created_at, updated_at, last_login_at)
-      SELECT ${id}, ${email}, ${name}, CASE WHEN EXISTS (SELECT 1 FROM users) THEN 'member' ELSE 'admin' END,
-        NULL, ${issuer}, ${subject}, ${now}, ${now}, NULL`);
+      SELECT ?, ?, ?, CASE WHEN EXISTS (SELECT 1 FROM users) THEN 'member' ELSE 'admin' END,
+        NULL, ?, ?, ?, ?, NULL`)
+        .bind(id, email, name, issuer, subject, now, now),
+      insertPersonalSpaceStatement(d1, id, now),
+    ]);
   } catch (error) {
     if (!isUniqueViolation(error)) throw error;
     return "retry";

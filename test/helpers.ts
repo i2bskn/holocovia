@@ -3,6 +3,7 @@ import { hashPassword } from "../src/auth/password";
 import { createDb } from "../src/db/client";
 import { users, type UserRow } from "../src/db/schema";
 import type { Bindings } from "../src/env";
+import { insertPersonalSpaceStatement } from "../src/spaces/queries";
 import app from "../src/index";
 
 export const ORIGIN = "https://holocovia.test";
@@ -12,7 +13,11 @@ export const PASSWORD = "correct horse battery";
 export const db = createDb(env.DB);
 
 export async function resetDb(): Promise<void> {
-  await env.DB.batch([env.DB.prepare("DELETE FROM sessions"), env.DB.prepare("DELETE FROM users")]);
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM sessions"),
+    env.DB.prepare("DELETE FROM spaces"),
+    env.DB.prepare("DELETE FROM users"),
+  ]);
 }
 
 export const oidcEnv: Partial<Bindings> = {
@@ -109,6 +114,7 @@ export async function createUser(params: {
     })
     .returning();
   if (!user) throw new Error("failed to create user");
+  await insertPersonalSpaceStatement(env.DB, user.id, now).run();
   return user;
 }
 
@@ -116,4 +122,41 @@ export async function login(email: string, password = PASSWORD): Promise<Session
   const res = await send("/auth/login", { form: { email, password, next: "/" } });
   if (res.status !== 303) throw new Error(`login failed: ${res.status}`);
   return sessionCookies(res);
+}
+
+export async function countSpaces(): Promise<number> {
+  const row = await env.DB.prepare("SELECT COUNT(*) AS count FROM spaces").first<{ count: number }>();
+  return row?.count ?? 0;
+}
+
+export async function countPersonalSpaces(userId: string): Promise<number> {
+  const row = await env.DB.prepare("SELECT COUNT(*) AS count FROM spaces WHERE kind = 'personal' AND owner_user_id = ?")
+    .bind(userId)
+    .first<{ count: number }>();
+  return row?.count ?? 0;
+}
+
+// Inserts a user without a personal space, like one created by code older than the spaces migration.
+export async function createUserWithoutSpace(params: {
+  email: string;
+  role?: "admin" | "member";
+  createdAt?: number;
+  oidc?: { issuer: string; subject: string };
+}): Promise<UserRow> {
+  const now = params.createdAt ?? Date.now();
+  const [user] = await db
+    .insert(users)
+    .values({
+      id: crypto.randomUUID(),
+      email: params.email,
+      role: params.role ?? "member",
+      passwordHash: params.oidc ? null : await hashPassword(PASSWORD),
+      oidcIssuer: params.oidc?.issuer ?? null,
+      oidcSubject: params.oidc?.subject ?? null,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .returning();
+  if (!user) throw new Error("failed to create user");
+  return user;
 }

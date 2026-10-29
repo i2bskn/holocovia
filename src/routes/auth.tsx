@@ -24,6 +24,7 @@ import {
 import { hashToken, verifyAccessToken } from "../auth/tokens";
 import { countUsers, createInitialAdmin, findUserByEmail, resolveOidcUser } from "../auth/users";
 import { isValidPassword, normalizeEmail, normalizeName } from "../auth/validate";
+import { insertPersonalSpaceStatement } from "../spaces/queries";
 import { ErrorPage } from "../views/error";
 import { LoggedOutPage } from "../views/logged-out";
 import { LoginPage } from "../views/login";
@@ -47,6 +48,13 @@ function formString(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
+// Creates the personal space if missing. Users created by older code (between the migration and
+// the deploy, or after a rollback) have none. A no-op read when it already exists.
+// Errors propagate so that the login fails instead of leaving the user without a personal space.
+async function ensurePersonalSpace(c: AppContext, userId: string, now: number): Promise<void> {
+  await insertPersonalSpaceStatement(c.get("db").$client, userId, now).run();
+}
+
 // HEAD is routed here too; like prefetches, it must not rotate the refresh token.
 auth.get("/login", async (c) => {
   if (c.req.method === "HEAD" || isPrefetch(c)) return c.body(null, 204);
@@ -60,6 +68,7 @@ auth.get("/login", async (c) => {
   if (refreshToken) {
     const result = await rotateSession(db, config, refreshToken, now);
     if (result.ok) {
+      await ensurePersonalSpace(c, result.session.userId, now);
       await setCookiesForSession(c, result.session, config.jwtSecret, now);
       return c.redirect(next, 302);
     }
@@ -102,6 +111,7 @@ auth.post("/login", requireMode("password"), async (c) => {
   }
 
   const now = clock.now();
+  await ensurePersonalSpace(c, user.id, now);
   const session = await issueSession(db, user.id, "password", now);
   await setCookiesForSession(c, session, config.jwtSecret, now);
   return c.redirect(next, 303);
@@ -207,6 +217,7 @@ auth.get("/oidc/callback", requireMode("oidc"), async (c) => {
     return c.html(<ErrorPage message="ログインに失敗しました" />, 500);
   }
 
+  await ensurePersonalSpace(c, resolved.user.id, now);
   const session = await issueSession(db, resolved.user.id, "oidc", now);
   await setCookiesForSession(c, session, config.jwtSecret, now);
   return c.redirect(safeNext(state.next, oidc.appOrigin), 303);
@@ -223,6 +234,7 @@ auth.post("/refresh", async (c) => {
     if (result.clearCookies) clearSessionCookies(c);
     return apiError(c, 401, "invalid_refresh_token", "再ログインが必要です");
   }
+  await ensurePersonalSpace(c, result.session.userId, now);
   await setCookiesForSession(c, result.session, config.jwtSecret, now);
   return c.body(null, 204);
 });

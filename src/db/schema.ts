@@ -44,5 +44,32 @@ export const sessions = sqliteTable(
   ],
 );
 
+// Pages belong to one space, and access is decided by the space kind alone.
+export const spaces = sqliteTable(
+  "spaces",
+  {
+    id: text("id").primaryKey(),
+    kind: text("kind", { enum: ["everyone", "admin", "personal"] }).notNull(),
+    // NULL only for personal spaces; clients decide their display name.
+    name: text("name"),
+    // Set only for personal spaces. Not deleted in cascade.
+    ownerUserId: text("owner_user_id").references(() => users.id),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [
+    // One personal space per user. NULLs do not conflict.
+    uniqueIndex("spaces_owner_user_id_unique").on(t.ownerUserId),
+    // Names are unique across everyone and admin spaces, compared exactly.
+    uniqueIndex("spaces_name_unique").on(t.name),
+    check("spaces_kind_check", sql`${t.kind} IN ('everyone', 'admin', 'personal')`),
+    check(
+      "spaces_personal_check",
+      sql`(${t.kind} = 'personal') = (${t.ownerUserId} IS NOT NULL) AND (${t.kind} = 'personal') = (${t.name} IS NULL)`,
+    ),
+  ],
+);
+
 export type UserRow = typeof users.$inferSelect;
 export type SessionRow = typeof sessions.$inferSelect;
+export type SpaceRow = typeof spaces.$inferSelect;

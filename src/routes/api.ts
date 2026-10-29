@@ -1,6 +1,6 @@
 import type { Context, MiddlewareHandler } from "hono";
-import type { User } from "../api/types";
-import type { UserRow } from "../db/schema";
+import type { Space, User } from "../api/types";
+import type { SpaceRow, UserRow } from "../db/schema";
 import type { AppEnv } from "../env";
 import { apiError } from "../auth/middleware";
 import { isJsonObject } from "../auth/validate";
@@ -13,6 +13,16 @@ export function toApiUser(user: UserRow): User {
     role: user.role,
     created_at: user.createdAt,
     last_login_at: user.lastLoginAt,
+  };
+}
+
+export function toApiSpace(space: SpaceRow): Space {
+  return {
+    id: space.id,
+    kind: space.kind,
+    name: space.name,
+    created_at: space.createdAt,
+    updated_at: space.updatedAt,
   };
 }
 

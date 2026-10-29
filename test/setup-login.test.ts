@@ -1,6 +1,17 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { countUsers, createInitialAdmin } from "../src/auth/users";
-import { createUser, db, oidcEnv, PASSWORD, resetDb, send, sessionCookies, setCookies } from "./helpers";
+import {
+  countPersonalSpaces,
+  countSpaces,
+  createUser,
+  db,
+  oidcEnv,
+  PASSWORD,
+  resetDb,
+  send,
+  sessionCookies,
+  setCookies,
+} from "./helpers";
 
 beforeEach(resetDb);
 
@@ -29,6 +40,8 @@ describe("initial setup", () => {
     expect(all).toHaveLength(1);
     expect(all[0]).toMatchObject({ email: "admin@example.com", name: "Admin", role: "admin" });
     expect(all[0]?.lastLoginAt).not.toBeNull();
+    expect(await countPersonalSpaces(all[0]?.id ?? "")).toBe(1);
+    expect(await countSpaces()).toBe(1);
   });
 
   it("returns 404 once a user exists", async () => {
@@ -49,12 +62,17 @@ describe("initial setup", () => {
     const admins = await db.query.users.findMany();
     expect(admins).toHaveLength(1);
     expect(admins[0]?.role).toBe("admin");
+    expect(await countPersonalSpaces(admins[0]?.id ?? "")).toBe(1);
+    expect(await countSpaces()).toBe(1);
   });
 
   it("creates the admin in one statement only when there are no users", async () => {
     const params = { email: "a@example.com", name: null, passwordHash: "x", now: Date.now() };
-    expect(await createInitialAdmin(db, params)).toMatchObject({ role: "admin" });
+    const created = await createInitialAdmin(db, params);
+    expect(created).toMatchObject({ role: "admin" });
+    expect(await countPersonalSpaces(created?.id ?? "")).toBe(1);
     expect(await createInitialAdmin(db, { ...params, email: "b@example.com" })).toBeNull();
+    expect(await countSpaces()).toBe(1);
   });
 
   it("re-renders the form with 400 on invalid input without echoing the password", async () => {

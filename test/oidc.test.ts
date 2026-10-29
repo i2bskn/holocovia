@@ -6,7 +6,19 @@ import { base64UrlEncode } from "../src/auth/tokens";
 import { resolveOidcUser, type OidcIdentity } from "../src/auth/users";
 import { users } from "../src/db/schema";
 import { loadConfig, type Bindings } from "../src/env";
-import { createUser, db, OIDC_ORIGIN, oidcEnv, resetDb, send, sessionCookies, setCookies } from "./helpers";
+import {
+  countPersonalSpaces,
+  countSpaces,
+  createUser,
+  createUserWithoutSpace,
+  db,
+  OIDC_ORIGIN,
+  oidcEnv,
+  resetDb,
+  send,
+  sessionCookies,
+  setCookies,
+} from "./helpers";
 
 const ISSUER = oidcEnv.OIDC_ISSUER ?? "";
 const CLIENT_ID = oidcEnv.OIDC_CLIENT_ID ?? "";
@@ -24,6 +36,10 @@ describe("resolveOidcUser", () => {
     const second = await resolveOidcUser(db, identity({ subject: "sub-2", email: "bob@example.com" }), NOW);
     expect(first).toMatchObject({ ok: true, user: { role: "admin", email: "alice@example.com", name: "Alice" } });
     expect(second).toMatchObject({ ok: true, user: { role: "member", oidcSubject: "sub-2" } });
+    for (const result of [first, second]) {
+      expect(await countPersonalSpaces(result.ok ? result.user.id : "")).toBe(1);
+    }
+    expect(await countSpaces()).toBe(2);
   });
 
   it("creates only one admin for concurrent first logins", async () => {
@@ -35,6 +51,8 @@ describe("resolveOidcUser", () => {
     expect(results.every((r) => r.ok)).toBe(true);
     const all = await db.query.users.findMany();
     expect(all.filter((u) => u.role === "admin")).toHaveLength(1);
+    for (const user of all) expect(await countPersonalSpaces(user.id)).toBe(1);
+    expect(await countSpaces()).toBe(all.length);
   });
 
   it("finds a linked user by issuer and subject and updates the email", async () => {
@@ -57,6 +75,7 @@ describe("resolveOidcUser", () => {
     const result = await resolveOidcUser(db, identity(), NOW);
     expect(result).toMatchObject({ ok: true, user: { id: existing.id, oidcIssuer: ISSUER, oidcSubject: "sub-1" } });
     expect(await db.query.users.findMany()).toHaveLength(1);
+    expect(await countSpaces()).toBe(1);
   });
 
   it("rejects an email that is linked to a different issuer or subject", async () => {
@@ -272,6 +291,23 @@ describe("OIDC flow with a mocked IdP", () => {
 
     const me = await send(`${OIDC_ORIGIN}/api/v1/me`, { env: oidcEnv, cookies });
     expect(await me.json()).toMatchObject({ email: "alice@example.com", name: "Alice", role: "admin" });
+    const user = await db.query.users.findFirst({ where: eq(users.oidcSubject, "sub-1") });
+    expect(await countPersonalSpaces(user?.id ?? "")).toBe(1);
+    expect(await countSpaces()).toBe(1);
+  });
+
+  it("creates a missing personal space when an existing user signs in, only once", async () => {
+    const legacy = await createUserWithoutSpace({
+      email: "alice@example.com",
+      oidc: { issuer: ISSUER, subject: "sub-1" },
+    });
+    for (let i = 0; i < 2; i++) {
+      const { location, oidcCookie } = await startLogin();
+      const res = await callback(`code=abc&state=${location.searchParams.get("state")}`, oidcCookie);
+      expect(res.status).toBe(303);
+      expect(await countPersonalSpaces(legacy.id)).toBe(1);
+    }
+    expect(await db.query.users.findMany()).toHaveLength(1);
   });
 
   it("returns 400 when the ID token signature or nonce is invalid", async () => {

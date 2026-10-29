@@ -15,6 +15,7 @@ import { hashPassword } from "../auth/password";
 import { revokeUserSessionsQuery } from "../auth/sessions";
 import { findUserById, isUniqueViolation } from "../auth/users";
 import { isRole, isValidPassword, normalizeEmail, normalizeName } from "../auth/validate";
+import { insertPersonalSpaceStatement } from "../spaces/queries";
 import { jsonBody, toApiUser } from "./api";
 
 const userNotFound = "ユーザーが見つかりません";
@@ -54,19 +55,19 @@ const usersApi = new Hono<AppEnv>()
     const db = c.get("db");
     const now = clock.now();
     const id = crypto.randomUUID();
+    const passwordHash = await hashPassword(input.password);
+    const d1 = db.$client;
     try {
-      await db
-        .insert(users)
-        .values({
-          id,
-          email: input.email,
-          name: input.name,
-          role: input.role,
-          passwordHash: await hashPassword(input.password),
-          createdAt: now,
-          updatedAt: now,
-        })
-        .run();
+      // The personal space is created in the same batch, so email_taken leaves no space behind.
+      await d1.batch([
+        d1
+          .prepare(
+            `INSERT INTO users (id, email, name, role, password_hash, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .bind(id, input.email, input.name, input.role, passwordHash, now, now),
+        insertPersonalSpaceStatement(d1, id, now),
+      ]);
     } catch (error) {
       if (isUniqueViolation(error)) {
         return apiError(c, 409, "email_taken", "このメールアドレスはすでに使われています");

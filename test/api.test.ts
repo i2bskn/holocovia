@@ -6,6 +6,8 @@ import { signAccessToken } from "../src/auth/tokens";
 import { users, type UserRow } from "../src/db/schema";
 import { env } from "cloudflare:workers";
 import {
+  countPersonalSpaces,
+  countSpaces,
   createUser,
   db,
   login,
@@ -161,6 +163,18 @@ describe("admin user API", () => {
     expect((await login("new@example.com", NEW_PASSWORD))["__Host-holocovia_at"]).toBeTruthy();
   });
 
+  it("POST /api/v1/users creates exactly one personal space", async () => {
+    const res = await send("/api/v1/users", {
+      cookies: adminCookies,
+      json: { email: "new@example.com", password: NEW_PASSWORD, role: "member" },
+    });
+    expect(res.status).toBe(201);
+    const { id } = (await res.json()) as { id: string };
+    // Checked before any login, which would also create a missing personal space.
+    expect(await countPersonalSpaces(id)).toBe(1);
+    expect(await countSpaces()).toBe(3);
+  });
+
   it("returns 409 email_taken for duplicate emails", async () => {
     const res = await send("/api/v1/users", {
       cookies: adminCookies,
@@ -168,6 +182,8 @@ describe("admin user API", () => {
     });
     expect(res.status).toBe(409);
     expect(((await res.json()) as { error: { code: string } }).error.code).toBe("email_taken");
+    // The personal space is rolled back with the user in the same batch.
+    expect(await countSpaces()).toBe(2);
   });
 
   it("validates user creation input", async () => {

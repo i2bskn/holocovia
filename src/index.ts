@@ -12,6 +12,7 @@ import {
 import auth from "./routes/auth";
 import home from "./routes/home";
 import me from "./routes/me";
+import spacesApi from "./routes/spaces";
 import usersApi from "./routes/users";
 import { ErrorPage } from "./views/error";
 
@@ -26,7 +27,10 @@ app.use("/api/v1/*", sameOrigin);
 
 app.route("/", home);
 app.route("/auth", auth);
-const apiRoutes = app.route("/api/v1/me", me).route("/api/v1/users", usersApi);
+const apiRoutes = app
+  .route("/api/v1/me", me)
+  .route("/api/v1/users", usersApi)
+  .route("/api/v1/spaces", spacesApi);
 
 // Types for hc<AppType>(). Only /api/v1/* is included.
 export type AppType = typeof apiRoutes;
