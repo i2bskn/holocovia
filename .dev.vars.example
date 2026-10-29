@@ -2,11 +2,15 @@
 # Cookies use the Secure attribute and the __Host- prefix. Chrome and Firefox store them on
 # http://localhost, but Safari does not, so use Chrome or Firefox for local development.
 
-# "password" (default) or "oidc"
-AUTH_MODE=password
+# The Deploy to Cloudflare button asks for every uncommented key in this file as a secret.
+# Keep only JWT_SECRET uncommented; the other settings are plain variables.
 
-# At least 32 characters.
-JWT_SECRET=change-me-to-a-random-string-of-32-chars-or-more
+# Required. At least 32 characters. Generate one with `openssl rand -hex 32`.
+# Left empty on purpose so that a placeholder is never used in production.
+JWT_SECRET=
+
+# "password" (default) or "oidc"
+# AUTH_MODE=password
 
 # Required only when AUTH_MODE=oidc.
 # APP_ORIGIN=https://wiki.example.com

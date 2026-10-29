@@ -10,7 +10,8 @@
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
-    "db:migrate:remote": "wrangler d1 migrations apply DB --remote"
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "deploy": "wrangler d1 migrations apply DB --remote && wrangler deploy"
   },
   "dependencies": {
     "drizzle-orm": "0.45.4",
@@ -30,5 +31,12 @@
       "esbuild",
       "workerd"
     ]
+  },
+  "cloudflare": {
+    "bindings": {
+      "JWT_SECRET": {
+        "description": "Secret for signing session tokens (at least 32 characters). Generate one with `openssl rand -hex 32`. Changing it signs everyone out."
+      }
+    }
   }
 }
