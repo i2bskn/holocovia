@@ -70,6 +70,28 @@ export const spaces = sqliteTable(
   ],
 );
 
+// The body is Markdown stored as is. version is for optimistic locking and starts at 1.
+export const pages = sqliteTable(
+  "pages",
+  {
+    id: text("id").primaryKey(),
+    // Not deleted in cascade, so deleting a space never deletes its pages.
+    spaceId: text("space_id")
+      .notNull()
+      .references(() => spaces.id),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    version: integer("version").notNull(),
+    // Pages outlive the users who created or edited them.
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [index("pages_space_id_updated_at_idx").on(t.spaceId, t.updatedAt)],
+);
+
 export type UserRow = typeof users.$inferSelect;
 export type SessionRow = typeof sessions.$inferSelect;
 export type SpaceRow = typeof spaces.$inferSelect;
+export type PageRow = typeof pages.$inferSelect;

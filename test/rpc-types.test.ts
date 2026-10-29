@@ -1,6 +1,17 @@
 import { hc, type InferRequestType, type InferResponseType } from "hono/client";
 import { describe, expectTypeOf, it } from "vitest";
-import type { CreateSpaceRequest, CreateUserRequest, Space, SpaceList, User, UserList } from "../src/api/types";
+import type {
+  CreatePageRequest,
+  CreateSpaceRequest,
+  CreateUserRequest,
+  Page,
+  PageList,
+  Space,
+  SpaceList,
+  UpdatePageRequest,
+  User,
+  UserList,
+} from "../src/api/types";
 import type { AppType } from "../src/index";
 import { ORIGIN } from "./helpers";
 
@@ -9,6 +20,8 @@ const client = hc<AppType>(ORIGIN);
 
 type CreateUserJson = InferRequestType<typeof client.api.v1.users.$post>["json"];
 type CreateSpaceJson = InferRequestType<typeof client.api.v1.spaces.$post>["json"];
+type CreatePageJson = InferRequestType<(typeof client.api.v1.spaces)[":id"]["pages"]["$post"]>["json"];
+type UpdatePageJson = InferRequestType<(typeof client.api.v1.pages)[":id"]["$patch"]>["json"];
 
 describe("AppType", () => {
   it("types the request body of POST /api/v1/users", () => {
@@ -29,11 +42,25 @@ describe("AppType", () => {
     void personal;
   });
 
+  it("types the request bodies of page creation and update", () => {
+    expectTypeOf<CreatePageJson>().toEqualTypeOf<CreatePageRequest>();
+    expectTypeOf<UpdatePageJson>().toEqualTypeOf<UpdatePageRequest>();
+    const titleOnly: UpdatePageJson = { version: 1, title: "Title" };
+    // @ts-expect-error version is required for optimistic locking
+    const withoutVersion: UpdatePageJson = { title: "Title" };
+    void titleOnly;
+    void withoutVersion;
+  });
+
   it("types successful response bodies", () => {
     expectTypeOf<InferResponseType<typeof client.api.v1.me.$get, 200>>().toEqualTypeOf<User>();
     expectTypeOf<InferResponseType<typeof client.api.v1.users.$get, 200>>().toEqualTypeOf<UserList>();
     expectTypeOf<InferResponseType<typeof client.api.v1.users.$post, 201>>().toEqualTypeOf<User>();
     expectTypeOf<InferResponseType<typeof client.api.v1.spaces.$get, 200>>().toEqualTypeOf<SpaceList>();
     expectTypeOf<InferResponseType<typeof client.api.v1.spaces.$post, 201>>().toEqualTypeOf<Space>();
+    expectTypeOf<InferResponseType<(typeof client.api.v1.spaces)[":id"]["pages"]["$get"], 200>>().toEqualTypeOf<PageList>();
+    expectTypeOf<InferResponseType<(typeof client.api.v1.spaces)[":id"]["pages"]["$post"], 201>>().toEqualTypeOf<Page>();
+    expectTypeOf<InferResponseType<(typeof client.api.v1.pages)[":id"]["$get"], 200>>().toEqualTypeOf<Page>();
+    expectTypeOf<InferResponseType<(typeof client.api.v1.pages)[":id"]["$patch"], 200>>().toEqualTypeOf<Page>();
   });
 });

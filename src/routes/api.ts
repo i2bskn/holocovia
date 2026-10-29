@@ -1,6 +1,6 @@
 import type { Context, MiddlewareHandler } from "hono";
-import type { Space, User } from "../api/types";
-import type { SpaceRow, UserRow } from "../db/schema";
+import type { Page, PageSummary, Space, User } from "../api/types";
+import type { PageRow, SpaceRow, UserRow } from "../db/schema";
 import type { AppEnv } from "../env";
 import { apiError } from "../auth/middleware";
 import { isJsonObject } from "../auth/validate";
@@ -24,6 +24,24 @@ export function toApiSpace(space: SpaceRow): Space {
     created_at: space.createdAt,
     updated_at: space.updatedAt,
   };
+}
+
+// Takes a row without the body so that page lists never need to read bodies from the DB.
+export function toApiPageSummary(page: Omit<PageRow, "body">): PageSummary {
+  return {
+    id: page.id,
+    space_id: page.spaceId,
+    title: page.title,
+    version: page.version,
+    created_by: page.createdBy,
+    updated_by: page.updatedBy,
+    created_at: page.createdAt,
+    updated_at: page.updatedAt,
+  };
+}
+
+export function toApiPage(page: PageRow): Page {
+  return { ...toApiPageSummary(page), body: page.body };
 }
 
 // Returns the JSON body if it is an object, otherwise null.

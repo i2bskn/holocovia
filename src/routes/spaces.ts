@@ -1,14 +1,17 @@
 import { Hono } from "hono";
-import { asc, eq } from "drizzle-orm";
-import type { CreateSpaceInput, CreateSpaceRequest, SpaceList, UpdateSpaceRequest } from "../api/types";
+import { and, asc, eq, ne, sql } from "drizzle-orm";
+import type { CreateSpaceInput, CreateSpaceRequest, PageList, SpaceList, UpdateSpaceRequest } from "../api/types";
 import { clock } from "../clock";
-import { spaces } from "../db/schema";
+import { isForeignKeyViolation } from "../db/errors";
+import { pages, spaces } from "../db/schema";
 import type { AppEnv } from "../env";
 import { apiError, requireAdmin, requireUser } from "../auth/middleware";
 import { isUniqueViolation } from "../auth/users";
+import { listPageSummaries } from "../pages/queries";
 import { accessibleSpacesWhere, canAccessSpace } from "../spaces/access";
 import { findSpaceById } from "../spaces/queries";
-import { jsonBody, toApiSpace } from "./api";
+import { jsonBody, toApiPage, toApiPageSummary, toApiSpace } from "./api";
+import { createPageBody } from "./pages";
 
 const SPACE_NAME_MAX_LENGTH = 100;
 const CONTROL_CHARACTER = /\p{Cc}/u;
@@ -105,6 +108,74 @@ const spacesApi = new Hono<AppEnv>()
     }
     if (!updated) return apiError(c, 404, "not_found", spaceNotFound);
     return c.json(toApiSpace(updated), 200);
+  })
+  .delete("/:id", requireUser, requireAdmin, async (c) => {
+    const db = c.get("db");
+    const space = await findSpaceById(db, c.req.param("id"));
+    if (!space || !canAccessSpace(c.get("user"), space)) return apiError(c, 404, "not_found", spaceNotFound);
+    // Only the owner can see a personal space here, so there is nothing to hide: 403 rather than 404.
+    if (space.kind === "personal") return apiError(c, 403, "forbidden", "個人スペースは削除できません");
+
+    // One statement, so a page created after the check above keeps the space.
+    // The foreign key from pages.space_id also rejects the delete.
+    const result = await db
+      .delete(spaces)
+      .where(
+        and(
+          eq(spaces.id, space.id),
+          ne(spaces.kind, "personal"),
+          sql`NOT EXISTS (SELECT 1 FROM ${pages} WHERE ${pages.spaceId} = ${space.id})`,
+        ),
+      )
+      .run();
+    if (result.meta.changes === 1) return c.body(null, 204);
+    if (!(await findSpaceById(db, space.id))) return apiError(c, 404, "not_found", spaceNotFound);
+    return apiError(
+      c,
+      409,
+      "space_not_empty",
+      "ページが残っているスペースは削除できません。ページを移すか削除してから消してください",
+    );
+  })
+  .get("/:id/pages", requireUser, async (c) => {
+    const db = c.get("db");
+    const space = await findSpaceById(db, c.req.param("id"));
+    if (!space || !canAccessSpace(c.get("user"), space)) return apiError(c, 404, "not_found", spaceNotFound);
+    const rows = await listPageSummaries(db, space.id);
+    const body: PageList = { pages: rows.map(toApiPageSummary) };
+    return c.json(body, 200);
+  })
+  .post("/:id/pages", requireUser, createPageBody, async (c) => {
+    const input = c.req.valid("json");
+    const db = c.get("db");
+    const user = c.get("user");
+    const space = await findSpaceById(db, c.req.param("id"));
+    if (!space || !canAccessSpace(user, space)) return apiError(c, 404, "not_found", spaceNotFound);
+
+    const now = clock.now();
+    let created;
+    try {
+      created = await db
+        .insert(pages)
+        .values({
+          id: crypto.randomUUID(),
+          spaceId: space.id,
+          title: input.title,
+          body: input.body,
+          version: 1,
+          createdBy: user.id,
+          updatedBy: user.id,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning()
+        .get();
+    } catch (error) {
+      // The space was deleted after the check above (or the user, whose session ends with it).
+      if (isForeignKeyViolation(error)) return apiError(c, 404, "not_found", spaceNotFound);
+      throw error;
+    }
+    return c.json(toApiPage(created), 201);
   });
 
 export default spacesApi;

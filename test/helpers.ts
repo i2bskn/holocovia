@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { hashPassword } from "../src/auth/password";
 import { createDb } from "../src/db/client";
-import { users, type UserRow } from "../src/db/schema";
+import { pages, users, type PageRow, type UserRow } from "../src/db/schema";
 import type { Bindings } from "../src/env";
 import { insertPersonalSpaceStatement } from "../src/spaces/queries";
 import app from "../src/index";
@@ -15,6 +15,7 @@ export const db = createDb(env.DB);
 export async function resetDb(): Promise<void> {
   await env.DB.batch([
     env.DB.prepare("DELETE FROM sessions"),
+    env.DB.prepare("DELETE FROM pages"),
     env.DB.prepare("DELETE FROM spaces"),
     env.DB.prepare("DELETE FROM users"),
   ]);
@@ -159,4 +160,38 @@ export async function createUserWithoutSpace(params: {
     .returning();
   if (!user) throw new Error("failed to create user");
   return user;
+}
+
+// Inserts a page directly, bypassing the API and its access checks.
+export async function insertPage(params: {
+  spaceId: string;
+  title?: string;
+  body?: string;
+  createdBy?: string | null;
+  at?: number;
+  id?: string;
+}): Promise<PageRow> {
+  const at = params.at ?? Date.now();
+  const createdBy = params.createdBy ?? null;
+  const [page] = await db
+    .insert(pages)
+    .values({
+      id: params.id ?? crypto.randomUUID(),
+      spaceId: params.spaceId,
+      title: params.title ?? "Page",
+      body: params.body ?? "",
+      version: 1,
+      createdBy,
+      updatedBy: createdBy,
+      createdAt: at,
+      updatedAt: at,
+    })
+    .returning();
+  if (!page) throw new Error("failed to create page");
+  return page;
+}
+
+export async function countPages(): Promise<number> {
+  const row = await env.DB.prepare("SELECT COUNT(*) AS count FROM pages").first<{ count: number }>();
+  return row?.count ?? 0;
 }

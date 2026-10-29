@@ -83,3 +83,58 @@ export type CreateSpaceInput = {
 export type UpdateSpaceRequest = {
   name: string;
 };
+
+// A page without its body, as returned by page lists.
+export type PageSummary = {
+  id: string;
+  space_id: string;
+  title: string;
+  // Starts at 1 and is incremented on every update. Send it back when updating.
+  version: number;
+  // null once the user is deleted.
+  created_by: string | null;
+  // null once the user is deleted.
+  updated_by: string | null;
+  // UNIX time in milliseconds.
+  created_at: number;
+  // UNIX time in milliseconds.
+  updated_at: number;
+};
+
+// PageSummary with the body. Written out flat rather than as an intersection so that it is
+// the same type as the response inferred by hc<AppType>().
+export type Page = {
+  id: string;
+  space_id: string;
+  title: string;
+  version: number;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: number;
+  updated_at: number;
+  // Markdown.
+  body: string;
+};
+
+export type PageList = {
+  pages: PageSummary[];
+};
+
+export type CreatePageRequest = {
+  title: string;
+  body: string;
+};
+
+// CreatePageRequest after validation. title is trimmed.
+export type CreatePageInput = CreatePageRequest;
+
+// At least one of title and body is required; this is checked at runtime, not by the type.
+export type UpdatePageRequest = {
+  // The version the change is based on. A different current version is a conflict.
+  version: number;
+  title?: string;
+  body?: string;
+};
+
+// UpdatePageRequest after validation. title is trimmed.
+export type UpdatePageInput = UpdatePageRequest;

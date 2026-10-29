@@ -9,11 +9,13 @@ import { spaces, users, type SpaceRow, type UserRow } from "../src/db/schema";
 import { accessibleSpacesWhere, canAccessSpace } from "../src/spaces/access";
 import { insertPersonalSpaceStatement } from "../src/spaces/queries";
 import {
+  countPages,
   countPersonalSpaces,
   countSpaces,
   createUser,
   createUserWithoutSpace,
   db,
+  insertPage,
   login,
   resetDb,
   send,
@@ -260,6 +262,59 @@ describe("PATCH /api/v1/spaces/:id", () => {
     const invalid = await send(`/api/v1/spaces/${space.id}`, { method: "PATCH", cookies: adminCookies, json: { name: " " } });
     expect(invalid.status).toBe(400);
     expect(await errorCode(invalid)).toBe("invalid_name");
+  });
+});
+
+describe("DELETE /api/v1/spaces/:id", () => {
+  function deleteSpace(id: string, cookies: SessionCookies): Promise<Response> {
+    return send(`/api/v1/spaces/${id}`, { method: "DELETE", cookies });
+  }
+
+  it("deletes an empty space", async () => {
+    const space = await insertSpace("admin", "Empty");
+    const kept = await insertSpace("everyone", "Kept");
+    const res = await deleteSpace(space.id, adminCookies);
+    expect(res.status).toBe(204);
+    expect(await db.query.spaces.findFirst({ where: eq(spaces.id, space.id) })).toBeUndefined();
+    expect(await db.query.spaces.findFirst({ where: eq(spaces.id, kept.id) })).toEqual(kept);
+    expect((await deleteSpace(space.id, adminCookies)).status).toBe(404);
+  });
+
+  it("returns 409 space_not_empty and keeps the space and its pages", async () => {
+    const space = await insertSpace("everyone", "Full");
+    const page = await insertPage({ spaceId: space.id });
+    const res = await deleteSpace(space.id, adminCookies);
+    expect(res.status).toBe(409);
+    expect(await errorCode(res)).toBe("space_not_empty");
+    expect(await db.query.spaces.findFirst({ where: eq(spaces.id, space.id) })).toEqual(space);
+    expect(await countPages()).toBe(1);
+
+    expect((await send(`/api/v1/pages/${page.id}`, { method: "DELETE", cookies: adminCookies })).status).toBe(204);
+    expect((await deleteSpace(space.id, adminCookies)).status).toBe(204);
+  });
+
+  it("returns 403 for the admin's own personal space and 404 for another user's", async () => {
+    const own = await personalSpaceOf(admin);
+    const ownRes = await deleteSpace(own.id, adminCookies);
+    expect(ownRes.status).toBe(403);
+    expect(await errorCode(ownRes)).toBe("forbidden");
+
+    const otherRes = await deleteSpace((await personalSpaceOf(member)).id, adminCookies);
+    expect(otherRes.status).toBe(404);
+    expect(await errorCode(otherRes)).toBe("not_found");
+    expect(await countSpaces()).toBe(2);
+  });
+
+  it("returns 403 to members and 404 for an unknown id", async () => {
+    const space = await insertSpace("everyone", "Everyone");
+    const asMember = await deleteSpace(space.id, memberCookies);
+    expect(asMember.status).toBe(403);
+    expect(await errorCode(asMember)).toBe("forbidden");
+    expect(await db.query.spaces.findFirst({ where: eq(spaces.id, space.id) })).toEqual(space);
+
+    const unknown = await deleteSpace("nope", adminCookies);
+    expect(unknown.status).toBe(404);
+    expect(await errorCode(unknown)).toBe("not_found");
   });
 });
 

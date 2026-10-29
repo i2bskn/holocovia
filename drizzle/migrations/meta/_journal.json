@@ -15,6 +15,13 @@
       "when": 1793283558288,
       "tag": "0001_spaces",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1793286448934,
+      "tag": "0002_pages",
+      "breakpoints": true
     }
   ]
 }
