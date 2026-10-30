@@ -1,4 +1,4 @@
-import type { Page } from "../../src/api/types";
+import type { CreateSpaceRequest, Page, Space } from "../../src/api/types";
 import { LoginRequiredError, responseErrorMessage, unexpectedResponseMessage } from "./api";
 import type { PageChanges } from "./edit";
 import type { ApiClient } from "./load";
@@ -213,17 +213,22 @@ export async function movePage(
   return { kind: "error", message: await responseErrorMessage(res) };
 }
 
-// The outcome of the folder actions. Errors of the request (400) and of the state of the folders (409:
-// a cycle, a folder that is not empty) are shown with the server's message.
-export type FolderActionResult =
+// The outcome of the folder and space actions. Errors of the request (400), of the permissions (403) and of
+// the state of the resources (409: a cycle, a name in use, a folder or space that is not empty) are shown
+// with the server's message.
+type ResourceActionResult =
   | { kind: "ok" }
-  // The folder, or the space or parent the folder is created in, is missing or not accessible.
+  // The resource (a folder or a space), or the space or parent a folder is created in, is missing or not
+  // accessible.
   | { kind: "notFound" }
   | SendFailure;
 
-async function folderActionResult<R extends { ok: boolean; status: number; json(): Promise<unknown> }>(
+export type FolderActionResult = ResourceActionResult;
+export type SpaceActionResult = ResourceActionResult;
+
+async function resourceActionResult<R extends { ok: boolean; status: number; json(): Promise<unknown> }>(
   sent: { kind: "response"; res: R } | SendFailure,
-): Promise<FolderActionResult> {
+): Promise<ResourceActionResult> {
   if (sent.kind !== "response") return sent;
   const { res } = sent;
   if (res.ok) return { kind: "ok" };
@@ -237,7 +242,7 @@ export async function createFolder(
   spaceId: string,
   input: { name: string; parentId: string | null },
 ): Promise<FolderActionResult> {
-  return folderActionResult(
+  return resourceActionResult(
     await send(() =>
       client.api.v1.spaces[":id"].folders.$post({
         param: { id: spaceId },
@@ -253,7 +258,7 @@ export async function updateFolder(
   folderId: string,
   changes: { name?: string; parent_id?: string | null },
 ): Promise<FolderActionResult> {
-  return folderActionResult(
+  return resourceActionResult(
     await send(() => client.api.v1.folders[":id"].$patch({ param: { id: folderId }, json: changes })),
   );
 }
@@ -265,7 +270,7 @@ export async function moveFolder(
   folderId: string,
   input: { spaceId: string; parentId: string | null },
 ): Promise<FolderActionResult> {
-  return folderActionResult(
+  return resourceActionResult(
     await send(() =>
       client.api.v1.folders[":id"].move.$post({
         param: { id: folderId },
@@ -277,5 +282,38 @@ export async function moveFolder(
 
 // Deletes an empty folder. Never rejects.
 export async function deleteFolder(client: ApiClient, folderId: string): Promise<FolderActionResult> {
-  return folderActionResult(await send(() => client.api.v1.folders[":id"].$delete({ param: { id: folderId } })));
+  return resourceActionResult(await send(() => client.api.v1.folders[":id"].$delete({ param: { id: folderId } })));
+}
+
+export type CreateSpaceResult = { kind: "ok"; space: Space } | SendFailure;
+
+// Creates a space that everyone or only admins can see. Admins only; the server trims the name. Errors,
+// including a non-admin (403), are shown with the server's message. Never rejects.
+export async function createSpace(
+  client: ApiClient,
+  input: { kind: CreateSpaceRequest["kind"]; name: string },
+): Promise<CreateSpaceResult> {
+  const sent = await send(() => client.api.v1.spaces.$post({ json: { kind: input.kind, name: input.name } }));
+  if (sent.kind !== "response") return sent;
+  const { res } = sent;
+  if (res.ok) {
+    try {
+      return { kind: "ok", space: await res.json() };
+    } catch {
+      return { kind: "error", message: unexpectedResponseMessage(res.status) };
+    }
+  }
+  return { kind: "error", message: await responseErrorMessage(res) };
+}
+
+// Renames a space other than a personal space. Admins only. Never rejects.
+export async function renameSpace(client: ApiClient, spaceId: string, name: string): Promise<SpaceActionResult> {
+  return resourceActionResult(
+    await send(() => client.api.v1.spaces[":id"].$patch({ param: { id: spaceId }, json: { name } })),
+  );
+}
+
+// Deletes an empty space other than a personal space. Admins only. Never rejects.
+export async function deleteSpace(client: ApiClient, spaceId: string): Promise<SpaceActionResult> {
+  return resourceActionResult(await send(() => client.api.v1.spaces[":id"].$delete({ param: { id: spaceId } })));
 }

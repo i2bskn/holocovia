@@ -6,8 +6,9 @@ import { isValidId } from "../router";
 import { ViewStatus, useDocumentTitle, viewTitle } from "./common";
 import { EntryList } from "./EntryList";
 import { FolderActions } from "./FolderActions";
+import { SpaceActions } from "./SpaceActions";
 
-export function SpaceView({ client, id }: { client: ApiClient; id: string }) {
+export function SpaceView({ client, id, isAdmin }: { client: ApiClient; id: string; isAdmin: boolean }) {
   const [state, reload] = useView(() => loadSpaceView(client, id), id);
   useDocumentTitle(viewTitle(state, (data) => spaceDisplayName(data.space)));
 
@@ -35,6 +36,9 @@ export function SpaceView({ client, id }: { client: ApiClient; id: string }) {
           </Link>
         )}
       </div>
+      {isAdmin && space.kind !== "personal" && isValidId(space.id) && (
+        <SpaceActions client={client} space={space} onReload={reload} />
+      )}
       <FolderActions client={client} space={space} folders={folders} folder={null} onReload={reload} />
       {/* Only the top level; the rest is shown on the folder screens. */}
       <EntryList

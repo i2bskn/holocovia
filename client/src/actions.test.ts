@@ -1,12 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
-import type { Page } from "../../src/api/types";
+import type { Page, Space } from "../../src/api/types";
 import {
   createFolder,
   createPage,
+  createSpace,
   deleteFolder,
+  deleteSpace,
   moveFolder,
   movePage,
   purgeTrashedPage,
+  renameSpace,
   restoreRevision,
   restoreTrashedPage,
   trashPage,
@@ -509,5 +512,111 @@ describe("moveFolder", () => {
   it("is redirecting when login is required", async () => {
     const { client } = setup(apiError(401, "ログインしてください"), 401, url);
     expect(await moveFolder(client, "f1", input)).toEqual({ kind: "redirecting" });
+  });
+});
+
+describe("createSpace", () => {
+  const url = "/api/v1/spaces";
+  const input = { kind: "admin", name: "運用" } as const;
+  const SPACE: Space = { id: "s2", kind: "admin", name: "運用", created_at: 1, updated_at: 1 };
+
+  it("sends the kind and the name and is ok with the space on 201", async () => {
+    const { client, fetch } = setup(() => Response.json(SPACE, { status: 201 }), 401, url);
+    expect(await createSpace(client, input)).toEqual({ kind: "ok", space: SPACE });
+    const init = fetch.mock.calls[0]?.[1];
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(String(init?.body))).toEqual({ kind: "admin", name: "運用" });
+  });
+
+  it("is an error when the created space is not JSON", async () => {
+    const { client } = setup(() => new Response("created", { status: 201 }), 401, url);
+    expect(await createSpace(client, input)).toEqual({
+      kind: "error",
+      message: "サーバーから予期しない応答がありました（HTTP 201）",
+    });
+  });
+
+  it.each([
+    [400, "スペースの名前は 1 文字以上 100 文字以下で、改行を含まない文字列にしてください"],
+    [403, "管理者の権限が必要です"],
+    [409, "この名前のスペースはすでにあります"],
+  ])("is an error with the API message on %i", async (code, message) => {
+    const { client } = setup(apiError(code, message), 401, url);
+    expect(await createSpace(client, input)).toEqual({ kind: "error", message });
+  });
+
+  it("is unknown when fetch rejects", async () => {
+    const { client } = setup(() => Promise.reject(new TypeError("Failed to fetch")), 401, url);
+    expect(await createSpace(client, input)).toEqual({ kind: "unknown" });
+  });
+
+  it("is redirecting when login is required", async () => {
+    const { client } = setup(apiError(401, "ログインしてください"), 401, url);
+    expect(await createSpace(client, input)).toEqual({ kind: "redirecting" });
+  });
+});
+
+describe("renameSpace", () => {
+  const url = "/api/v1/spaces/s1";
+
+  it("sends the name and is ok on 200", async () => {
+    const { client, fetch } = setup(() => Response.json({}), 401, url);
+    expect(await renameSpace(client, "s1", "新しい名前")).toEqual({ kind: "ok" });
+    const init = fetch.mock.calls[0]?.[1];
+    expect(init?.method).toBe("PATCH");
+    expect(JSON.parse(String(init?.body))).toEqual({ name: "新しい名前" });
+  });
+
+  it("is not found on 404", async () => {
+    const { client } = setup(apiError(404, "スペースが見つかりません"), 401, url);
+    expect(await renameSpace(client, "s1", "a")).toEqual({ kind: "notFound" });
+  });
+
+  it("is an error with the API message on 409", async () => {
+    const message = "この名前のスペースはすでにあります";
+    const { client } = setup(apiError(409, message), 401, url);
+    expect(await renameSpace(client, "s1", "a")).toEqual({ kind: "error", message });
+  });
+
+  it("is unknown when fetch rejects", async () => {
+    const { client } = setup(() => Promise.reject(new TypeError("Failed to fetch")), 401, url);
+    expect(await renameSpace(client, "s1", "a")).toEqual({ kind: "unknown" });
+  });
+
+  it("is redirecting when login is required", async () => {
+    const { client } = setup(apiError(401, "ログインしてください"), 401, url);
+    expect(await renameSpace(client, "s1", "a")).toEqual({ kind: "redirecting" });
+  });
+});
+
+describe("deleteSpace", () => {
+  const url = "/api/v1/spaces/s1";
+
+  it("sends DELETE and is ok on 204", async () => {
+    const { client, fetch } = setup(() => new Response(null, { status: 204 }), 401, url);
+    expect(await deleteSpace(client, "s1")).toEqual({ kind: "ok" });
+    expect(fetch.mock.calls[0]?.[1]?.method).toBe("DELETE");
+  });
+
+  it("is not found on 404", async () => {
+    const { client } = setup(apiError(404, "スペースが見つかりません"), 401, url);
+    expect(await deleteSpace(client, "s1")).toEqual({ kind: "notFound" });
+  });
+
+  it("is an error with the API message on 409", async () => {
+    const message =
+      "ページ（ゴミ箱のページを含む）かフォルダが残っているスペースは削除できません。中身を移すか削除してから消してください";
+    const { client } = setup(apiError(409, message), 401, url);
+    expect(await deleteSpace(client, "s1")).toEqual({ kind: "error", message });
+  });
+
+  it("is unknown when fetch rejects", async () => {
+    const { client } = setup(() => Promise.reject(new TypeError("Failed to fetch")), 401, url);
+    expect(await deleteSpace(client, "s1")).toEqual({ kind: "unknown" });
+  });
+
+  it("is redirecting when login is required", async () => {
+    const { client } = setup(apiError(401, "ログインしてください"), 401, url);
+    expect(await deleteSpace(client, "s1")).toEqual({ kind: "redirecting" });
   });
 });

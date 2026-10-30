@@ -1,4 +1,4 @@
-import type { Space, SpaceKind } from "../../src/api/types";
+import type { CreateSpaceRequest, Space, SpaceKind } from "../../src/api/types";
 // A value import from the server code: visibility.ts imports nothing else, so no other server code is bundled.
 import { widensVisibility } from "../../src/spaces/visibility";
 
@@ -7,6 +7,13 @@ export const SPACE_KIND_LABELS: Record<SpaceKind, string> = {
   admin: "管理者のみ",
   personal: "自分だけ",
 };
+
+// The kinds of space that can be created from the client; personal spaces are created with their user.
+export const CREATABLE_SPACE_KINDS = ["everyone", "admin"] as const satisfies readonly CreateSpaceRequest["kind"][];
+
+export function isCreatableSpaceKind(value: string): value is CreateSpaceRequest["kind"] {
+  return (CREATABLE_SPACE_KINDS as readonly string[]).includes(value);
+}
 
 // Personal spaces have no name; the client decides how to show them.
 export function spaceDisplayName(space: Pick<Space, "kind" | "name">): string {
