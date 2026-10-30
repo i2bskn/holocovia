@@ -13,6 +13,7 @@ import { PageRevisionView } from "./views/PageRevisionView";
 import { PageView } from "./views/PageView";
 import { SearchView } from "./views/SearchView";
 import { SpaceView } from "./views/SpaceView";
+import { TrashView } from "./views/TrashView";
 
 // One client for every screen: the shared refresh and the single move to the login page are per instance.
 const client = createApiClient(
@@ -44,19 +45,21 @@ export function App() {
         <>
           <Header user={me.data} route={route} />
           <ErrorBoundary key={path}>
-            <Screen route={route} />
+            <Screen route={route} user={me.data} />
           </ErrorBoundary>
         </>
       );
   }
 }
 
-function Screen({ route }: { route: Route }) {
+function Screen({ route, user }: { route: Route; user: User }) {
   switch (route.name) {
     case "home":
       return <HomeView client={client} />;
     case "space":
       return <SpaceView client={client} id={route.id} />;
+    case "trash":
+      return <TrashView client={client} id={route.id} isAdmin={user.role === "admin"} />;
     case "folder":
       return <FolderView client={client} id={route.id} />;
     case "page":

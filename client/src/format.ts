@@ -20,3 +20,12 @@ export function formatDateTime(ms: number, timeZone?: string): string {
 export function formatSnippet(snippet: string): string {
   return `…${snippet.replace(/\s+/g, " ").trim()}…`;
 }
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// How long until a page in the trash is deleted, from purge_after (UNIX time in milliseconds).
+// Counted in whole days, rounded up.
+export function formatPurgeRemaining(purgeAfter: number, now: number): string {
+  const days = Math.ceil((purgeAfter - now) / DAY_MS);
+  return days <= 0 ? "まもなく完全に削除されます" : `あと ${days} 日で完全に削除されます`;
+}

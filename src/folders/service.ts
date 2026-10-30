@@ -1,4 +1,4 @@
-import { and, eq, sql, type SQL } from "drizzle-orm";
+import { and, eq, exists, isNotNull, sql, type SQL } from "drizzle-orm";
 import type { CreateFolderInput, UpdateFolderInput } from "../api/types";
 import { clock } from "../clock";
 import type { Db } from "../db/client";
@@ -111,24 +111,41 @@ export async function updateFolder(
 
 export type DeleteFolderResult = { ok: true } | { ok: false; error: "not_found" | "folder_not_empty" };
 
-// Deletes the folder only if it has no folders or pages in it.
+// The condition on folders for deleting the folder: it has no folders and no pages outside the trash in it.
+// Shared by the statements of deleteFolder so that they cannot disagree.
+function deletableFolderWhere(folder: Pick<FolderRow, "id" | "spaceId">): SQL | undefined {
+  return and(
+    eq(folders.id, folder.id),
+    eq(folders.spaceId, folder.spaceId),
+    sql`NOT EXISTS (SELECT 1 FROM ${folders} c WHERE c.parent_id = ${folder.id})`,
+    sql`NOT EXISTS (SELECT 1 FROM ${pages} WHERE ${pages.folderId} = ${folder.id} AND ${pages.deletedAt} IS NULL)`,
+  );
+}
+
+// Deletes the folder only if it has no folders or pages (other than pages in the trash) in it.
+// Pages in the trash of the folder move to the top level of the space.
 export async function deleteFolder(db: Db, user: UserRow, folderId: string): Promise<DeleteFolderResult> {
   const folder = await findAccessibleFolder(db, user, folderId);
   if (!folder) return { ok: false, error: "not_found" };
 
-  // One statement, so a folder or page added after the check above keeps the folder.
-  // The foreign keys from folders.parent_id and pages.folder_id also reject the delete.
-  const result = await db
-    .delete(folders)
-    .where(
-      and(
-        eq(folders.id, folder.id),
-        eq(folders.spaceId, folder.spaceId),
-        sql`NOT EXISTS (SELECT 1 FROM ${folders} c WHERE c.parent_id = ${folder.id})`,
-        sql`NOT EXISTS (SELECT 1 FROM ${pages} WHERE ${pages.folderId} = ${folder.id})`,
+  // One batch (a transaction in D1) with the same condition in both statements, so a folder or page added
+  // after the check above keeps the folder and the pages in the trash where they are.
+  // The pages in the trash are moved first; the foreign keys from folders.parent_id and pages.folder_id
+  // also reject the delete.
+  const where = deletableFolderWhere(folder);
+  const [, result] = await db.batch([
+    db
+      .update(pages)
+      .set({ folderId: null })
+      .where(
+        and(
+          eq(pages.folderId, folder.id),
+          isNotNull(pages.deletedAt),
+          exists(db.select({ one: sql`1` }).from(folders).where(where)),
+        ),
       ),
-    )
-    .run();
+    db.delete(folders).where(where),
+  ]);
   if (result.meta.changes === 1) return { ok: true };
   const current = await findFolderById(db, folder.id);
   if (!current || current.spaceId !== folder.spaceId) return { ok: false, error: "not_found" };

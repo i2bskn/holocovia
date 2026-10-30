@@ -16,6 +16,11 @@ export const invalidVersionMessage = "version は 1 以上の整数で指定し�
 export const emptyUpdateMessage = "title、body、folder_id のいずれかを指定してください";
 export const versionConflictMessage = "ページが他の人に更新されています。最新の内容を取得してからやり直してください";
 export const revisionNotFoundMessage = "この版は見つかりません。古い版は新しい 20 版を残して削除されます";
+export const notInTrashOnRestoreMessage = "このページはゴミ箱にありません";
+export const notInTrashOnPurgeMessage = "ゴミ箱にないページは完全に削除できません。先にゴミ箱へ移してください";
+export const purgeForbiddenRoleMessage = "完全に削除できるのは管理者だけです";
+export const purgePersonalForbiddenMessage =
+  "個人スペースのページは完全に削除できません。30 日たつと自動で削除されます";
 export const invalidSearchQueryMessage =
   "検索語は 1 文字以上 100 文字以下で、改行などの制御文字を含まない文字列にしてください";
 

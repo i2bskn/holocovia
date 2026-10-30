@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatDateTime, formatSnippet, spaceDisplayName } from "./format";
+import { formatDateTime, formatPurgeRemaining, formatSnippet, spaceDisplayName } from "./format";
 
 describe("spaceDisplayName", () => {
   it("shows personal spaces as 個人スペース", () => {
@@ -26,5 +26,21 @@ describe("formatSnippet", () => {
   it("adds … on both sides", () => {
     expect(formatSnippet("  abc  ")).toBe("…abc…");
     expect(formatSnippet("abc")).toBe("…abc…");
+  });
+});
+
+describe("formatPurgeRemaining", () => {
+  const DAY = 86_400_000;
+  const NOW = Date.UTC(2026, 9, 30);
+
+  it("counts whole days, rounded up", () => {
+    expect(formatPurgeRemaining(NOW + 30 * DAY, NOW)).toBe("あと 30 日で完全に削除されます");
+    expect(formatPurgeRemaining(NOW + DAY, NOW)).toBe("あと 1 日で完全に削除されます");
+    expect(formatPurgeRemaining(NOW + DAY / 2, NOW)).toBe("あと 1 日で完全に削除されます");
+  });
+
+  it("says soon at or after the time", () => {
+    expect(formatPurgeRemaining(NOW, NOW)).toBe("まもなく完全に削除されます");
+    expect(formatPurgeRemaining(NOW - DAY, NOW)).toBe("まもなく完全に削除されます");
   });
 });

@@ -1,8 +1,20 @@
 import type { Context, MiddlewareHandler } from "hono";
-import type { Folder, Page, PageRevision, PageRevisionSummary, PageSummary, SearchHit, Space, User } from "../api/types";
+import type {
+  Folder,
+  Page,
+  PageRevision,
+  PageRevisionSummary,
+  PageSummary,
+  SearchHit,
+  Space,
+  TrashedPage,
+  User,
+} from "../api/types";
 import type { FolderRow, PageRevisionRow, PageRow, SpaceRow, UserRow } from "../db/schema";
+import type { PageSummaryRow } from "../pages/queries";
 import type { RevisionSummaryRow } from "../pages/revisions";
 import type { SearchHitRow } from "../pages/search";
+import { TRASH_RETENTION_MS, type TrashedPageRow } from "../pages/trash";
 import type { AppEnv } from "../env";
 import { apiError } from "../auth/middleware";
 import { isJsonObject } from "../auth/validate";
@@ -42,7 +54,7 @@ export function toApiFolder(folder: FolderRow): Folder {
 }
 
 // Takes a row without the body so that page lists never need to read bodies from the DB.
-export function toApiPageSummary(page: Omit<PageRow, "body">): PageSummary {
+export function toApiPageSummary(page: PageSummaryRow): PageSummary {
   return {
     id: page.id,
     space_id: page.spaceId,
@@ -58,6 +70,16 @@ export function toApiPageSummary(page: Omit<PageRow, "body">): PageSummary {
 
 export function toApiPage(page: PageRow): Page {
   return { ...toApiPageSummary(page), body: page.body };
+}
+
+export function toApiTrashedPage(page: TrashedPageRow): TrashedPage {
+  if (page.deletedAt === null) throw new Error("unreachable: a page in the trash has deleted_at");
+  return {
+    ...toApiPageSummary(page),
+    deleted_at: page.deletedAt,
+    deleted_by: page.deletedBy,
+    purge_after: page.deletedAt + TRASH_RETENTION_MS,
+  };
 }
 
 export function toApiPageRevisionSummary(revision: RevisionSummaryRow): PageRevisionSummary {

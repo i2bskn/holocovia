@@ -118,10 +118,16 @@ export const pages = sqliteTable(
     updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
+    // Set while the page is in the trash of its space. Pages in the trash for TRASH_RETENTION_DAYS are
+    // deleted by the scheduled job.
+    deletedAt: integer("deleted_at"),
+    // Not a foreign key: ADD COLUMN cannot add one with ON DELETE, so this may refer to a deleted user.
+    deletedBy: text("deleted_by"),
   },
   (t) => [
     index("pages_space_id_updated_at_idx").on(t.spaceId, t.updatedAt),
     index("pages_folder_id_idx").on(t.folderId),
+    index("pages_deleted_at_idx").on(t.deletedAt),
   ],
 );
 
@@ -130,7 +136,7 @@ export const pageRevisions = sqliteTable(
   "page_revisions",
   {
     id: text("id").primaryKey(),
-    // Deleted with the page: deleting a page cannot be undone yet.
+    // Deleted with the page when it is deleted from the trash.
     pageId: text("page_id")
       .notNull()
       .references(() => pages.id, { onDelete: "cascade" }),

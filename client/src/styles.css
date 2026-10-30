@@ -334,6 +334,75 @@ a {
   gap: 0.5rem;
 }
 
+.page-delete-button {
+  margin-left: 0.5rem;
+}
+
+.trash-link {
+  margin-left: auto;
+  font-size: 0.875rem;
+}
+
+.trash-confirm {
+  margin: 0.5rem 0 1rem;
+  padding: 0.5rem 1rem;
+  background: #f8f8f8;
+  border: 1px solid #ddd;
+  border-radius: 0.25rem;
+}
+
+.trash-confirm p {
+  margin: 0.5rem 0;
+}
+
+.trash-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.trash-confirm .trash-actions {
+  margin-bottom: 0.5rem;
+}
+
+.trash-notice {
+  padding: 0.5rem 1rem;
+  background: #f8f8f8;
+  border: 1px solid #ddd;
+  border-radius: 0.25rem;
+}
+
+.trash {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.trash > li {
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #eee;
+}
+
+.trash-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 1rem;
+}
+
+.trash-title {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.trash-detail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 0.75rem;
+  font-size: 0.8rem;
+  color: #666;
+}
+
 .search-form {
   display: flex;
   flex: 1 1 16rem;

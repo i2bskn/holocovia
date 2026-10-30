@@ -17,6 +17,8 @@ import type {
   SearchResult,
   Space,
   SpaceList,
+  TrashedPage,
+  TrashList,
   UpdateFolderRequest,
   UpdatePageRequest,
   User,
@@ -128,5 +130,15 @@ describe("AppType", () => {
     expectTypeOf<
       InferResponseType<(typeof client.api.v1.pages)[":id"]["revisions"][":version"]["restore"]["$post"], 200>
     >().toEqualTypeOf<Page>();
+    expectTypeOf<InferResponseType<(typeof client.api.v1.spaces)[":id"]["trash"]["$get"], 200>>().toEqualTypeOf<TrashList>();
+    expectTypeOf<InferResponseType<(typeof client.api.v1.pages)[":id"]["restore"]["$post"], 200>>().toEqualTypeOf<Page>();
+  });
+
+  it("types the trash", () => {
+    expectTypeOf<TrashedPage["deleted_at"]>().toEqualTypeOf<number>();
+    expectTypeOf<TrashedPage["deleted_by"]>().toEqualTypeOf<string | null>();
+    expectTypeOf<TrashedPage["purge_after"]>().toEqualTypeOf<number>();
+    const param: InferRequestType<(typeof client.api.v1.pages)[":id"]["permanent"]["$delete"]>["param"] = { id: "p1" };
+    void param;
   });
 });

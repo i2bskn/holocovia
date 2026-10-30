@@ -6,6 +6,7 @@ import type {
   FolderList,
   PageList,
   SpaceList,
+  TrashList,
   UpdateSpaceRequest,
 } from "../api/types";
 import { clock } from "../clock";
@@ -18,9 +19,10 @@ import { createFolder } from "../folders/service";
 import { folderNotFoundMessage, parentNotFoundOnCreateMessage } from "../folders/validation";
 import { listPageSummaries } from "../pages/queries";
 import { createPage } from "../pages/service";
+import { listTrash } from "../pages/trash";
 import { accessibleSpacesWhere, canAccessSpace } from "../spaces/access";
 import { findSpaceById } from "../spaces/queries";
-import { jsonBody, toApiFolder, toApiPage, toApiPageSummary, toApiSpace } from "./api";
+import { jsonBody, toApiFolder, toApiPage, toApiPageSummary, toApiSpace, toApiTrashedPage } from "./api";
 import { createFolderBody } from "./folders";
 import { createPageBody } from "./pages";
 
@@ -128,6 +130,7 @@ const spacesApi = new Hono<AppEnv>()
     if (space.kind === "personal") return apiError(c, 403, "forbidden", "個人スペースは削除できません");
 
     // One statement, so a page or folder created after the check above keeps the space.
+    // Pages in the trash count too: they still belong to the space.
     // The foreign keys from pages.space_id and folders.space_id also reject the delete.
     const result = await db
       .delete(spaces)
@@ -146,7 +149,7 @@ const spacesApi = new Hono<AppEnv>()
       c,
       409,
       "space_not_empty",
-      "ページかフォルダが残っているスペースは削除できません。中身を移すか削除してから消してください",
+      "ページ（ゴミ箱のページを含む）かフォルダが残っているスペースは削除できません。中身を移すか削除してから消してください",
     );
   })
   .get("/:id/pages", requireUser, async (c) => {
@@ -163,6 +166,12 @@ const spacesApi = new Hono<AppEnv>()
     // 400 rather than 404: the space in the path exists, but the folder in the body does not.
     if (result.error === "folder_not_found") return apiError(c, 400, "folder_not_found", folderNotFoundMessage);
     return apiError(c, 404, "not_found", spaceNotFound);
+  })
+  .get("/:id/trash", requireUser, async (c) => {
+    const result = await listTrash(c.get("db"), c.get("user"), c.req.param("id"));
+    if (!result.ok) return apiError(c, 404, "not_found", spaceNotFound);
+    const body: TrashList = { pages: result.pages.map(toApiTrashedPage) };
+    return c.json(body, 200);
   })
   .get("/:id/folders", requireUser, async (c) => {
     const db = c.get("db");

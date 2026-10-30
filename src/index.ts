@@ -1,6 +1,10 @@
 import app from "./app";
+import { describeError } from "./auth/middleware";
+import { clock } from "./clock";
+import { createDb } from "./db/client";
 import { loadConfig, type Bindings, type Config } from "./env";
 import { getOAuthProvider } from "./mcp/provider";
+import { purgeExpiredTrash } from "./pages/trash";
 
 export type { AppType } from "./app";
 
@@ -46,5 +50,18 @@ export default {
     // A shallow copy per request: OAuthProvider sets env.OAUTH_PROVIDER only when it is missing,
     // so a shared env would keep the helpers of the first origin.
     return getOAuthProvider(origin).fetch(request, { ...env }, ctx);
+  },
+
+  // Daily (triggers.crons in wrangler.jsonc): deletes the pages that have been in the trash for 30 days.
+  // Uses the DB only, so it runs even when the configuration is invalid. Awaited rather than passed to
+  // ctx.waitUntil, so that a failure is recorded as a failed Cron run.
+  async scheduled(_controller: ScheduledController, env: Bindings, _ctx: ExecutionContext): Promise<void> {
+    try {
+      const count = await purgeExpiredTrash(createDb(env.DB), clock.now());
+      console.log("purged trash", { count });
+    } catch (error) {
+      console.error("purge trash failed", describeError(error));
+      throw error;
+    }
   },
 } satisfies ExportedHandler<Bindings>;

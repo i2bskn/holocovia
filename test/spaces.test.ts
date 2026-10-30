@@ -291,7 +291,16 @@ describe("DELETE /api/v1/spaces/:id", () => {
     expect(await db.query.spaces.findFirst({ where: eq(spaces.id, space.id) })).toEqual(space);
     expect(await countPages()).toBe(1);
 
+    // A page in the trash still keeps the space.
     expect((await send(`/api/v1/pages/${page.id}`, { method: "DELETE", cookies: adminCookies })).status).toBe(204);
+    const trashed = await deleteSpace(space.id, adminCookies);
+    expect(trashed.status).toBe(409);
+    expect(await errorCode(trashed)).toBe("space_not_empty");
+    expect(await countPages()).toBe(1);
+
+    expect(
+      (await send(`/api/v1/pages/${page.id}/permanent`, { method: "DELETE", cookies: adminCookies })).status,
+    ).toBe(204);
     expect((await deleteSpace(space.id, adminCookies)).status).toBe(204);
   });
 
@@ -303,7 +312,7 @@ describe("DELETE /api/v1/spaces/:id", () => {
     expect(await res.json()).toEqual({
       error: {
         code: "space_not_empty",
-        message: "ページかフォルダが残っているスペースは削除できません。中身を移すか削除してから消してください",
+        message: "ページ（ゴミ箱のページを含む）かフォルダが残っているスペースは削除できません。中身を移すか削除してから消してください",
       },
     });
     expect(await db.query.spaces.findFirst({ where: eq(spaces.id, space.id) })).toEqual(space);

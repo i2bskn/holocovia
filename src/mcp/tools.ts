@@ -8,6 +8,7 @@ import type {
   PageRevisionList,
   SearchResult,
   SpaceList,
+  TrashList,
   UpdateFolderInput,
   UpdatePageInput,
 } from "../api/types";
@@ -33,6 +34,7 @@ import { findAccessiblePage, listPageSummaries } from "../pages/queries";
 import { findAccessiblePageRevision, listAccessiblePageRevisions, restorePageRevision } from "../pages/revisions";
 import { searchAccessiblePages } from "../pages/search";
 import { createPage, updatePage } from "../pages/service";
+import { listTrash, restoreTrashedPage, trashPage } from "../pages/trash";
 import {
   emptyUpdateMessage,
   invalidPageBodyMessage,
@@ -43,6 +45,7 @@ import {
   normalizePageTitle,
   normalizeSearchQuery,
   normalizeVersion,
+  notInTrashOnRestoreMessage,
   pageNotFoundMessage,
   revisionNotFoundMessage,
   versionConflictMessage,
@@ -55,6 +58,7 @@ import {
   toApiPageSummary,
   toApiSearchHit,
   toApiSpace,
+  toApiTrashedPage,
 } from "../routes/api";
 import { accessibleSpacesWhere, canAccessSpace } from "../spaces/access";
 import { findSpaceById } from "../spaces/queries";
@@ -293,6 +297,63 @@ export function registerTools(server: McpServer, { db, user }: ToolDeps): void {
   );
 
   server.registerTool(
+    "delete_page",
+    {
+      description:
+        "Move a page to the trash of its space. It can be restored with restore_page for 30 days, " +
+        "after which it is deleted with its revisions. " +
+        "Pages in the trash do not appear in list_pages, get_page or search_pages.",
+      inputSchema: { page_id: z.string().describe("The id of a page returned by list_pages") },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    ({ page_id }) =>
+      guard("delete_page", async () => {
+        const result = await trashPage(db, user, page_id);
+        if (!result.ok) return errorResult(pageNotFoundMessage);
+        return jsonResult({ id: page_id, trashed: true });
+      }),
+  );
+
+  server.registerTool(
+    "list_trash",
+    {
+      description:
+        "List the pages in the trash of a space, most recently deleted first, without their bodies. " +
+        "deleted_at is when the page was moved to the trash, and purge_after is when it will be deleted " +
+        "with its revisions (30 days later). Use restore_page to take a page out of the trash.",
+      inputSchema: { space_id: z.string().describe("The id of a space returned by list_spaces") },
+      annotations: readOnlyAnnotations,
+    },
+    ({ space_id }) =>
+      guard("list_trash", async () => {
+        const result = await listTrash(db, user, space_id);
+        if (!result.ok) return errorResult("スペースが見つかりません");
+        const body: TrashList = { pages: result.pages.map(toApiTrashedPage) };
+        return jsonResult(body);
+      }),
+  );
+
+  server.registerTool(
+    "restore_page",
+    {
+      description:
+        "Take a page out of the trash of its space, back to its folder (or to the top level if the folder was deleted). " +
+        "The title, body and version do not change. " +
+        "This is not restore_page_revision, which goes back to an earlier version of a page that is not in the trash. " +
+        "Returns the page's metadata without the body.",
+      inputSchema: { page_id: z.string().describe("The id of a page returned by list_trash") },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    ({ page_id }) =>
+      guard("restore_page", async () => {
+        const result = await restoreTrashedPage(db, user, page_id);
+        if (result.ok) return jsonResult(toApiPageSummary(result.page));
+        if (result.error === "not_found") return errorResult(pageNotFoundMessage);
+        return errorResult(notInTrashOnRestoreMessage);
+      }),
+  );
+
+  server.registerTool(
     "list_page_revisions",
     {
       description:
@@ -490,7 +551,8 @@ export function registerTools(server: McpServer, { db, user }: ToolDeps): void {
     {
       description:
         "Delete an empty folder. A folder that still has pages or folders in it cannot be deleted; " +
-        "move or delete its contents first.",
+        "move or delete its contents first. Pages in the trash do not count: when the folder is deleted, " +
+        "they move to the top level of the space.",
       inputSchema: { folder_id: z.string().describe("The id of a folder returned by list_folders") },
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     },

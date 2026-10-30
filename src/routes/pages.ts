@@ -1,5 +1,4 @@
 import { Hono, type Context } from "hono";
-import { and, eq } from "drizzle-orm";
 import type {
   CreatePageInput,
   CreatePageRequest,
@@ -8,13 +7,13 @@ import type {
   UpdatePageInput,
   UpdatePageRequest,
 } from "../api/types";
-import { pages } from "../db/schema";
 import type { AppEnv } from "../env";
-import { apiError, requireUser } from "../auth/middleware";
+import { apiError, requireAdmin, requireUser } from "../auth/middleware";
 import { folderNotFoundMessage, invalidFolderIdMessage, normalizeFolderRef } from "../folders/validation";
 import { findAccessiblePage } from "../pages/queries";
 import { findAccessiblePageRevision, listAccessiblePageRevisions, restorePageRevision } from "../pages/revisions";
 import { updatePage } from "../pages/service";
+import { purgeTrashedPage, restoreTrashedPage, trashPage } from "../pages/trash";
 import {
   emptyUpdateMessage,
   invalidPageBodyMessage,
@@ -23,8 +22,12 @@ import {
   isValidPageBody,
   normalizePageTitle,
   normalizeVersion,
+  notInTrashOnPurgeMessage,
+  notInTrashOnRestoreMessage,
   pageNotFoundMessage,
   parseVersionParam,
+  purgeForbiddenRoleMessage,
+  purgePersonalForbiddenMessage,
   revisionNotFoundMessage,
   versionConflictMessage,
 } from "../pages/validation";
@@ -124,17 +127,32 @@ const pagesApi = new Hono<AppEnv>()
     if (result.error === "revision_not_found") return apiError(c, 404, "revision_not_found", revisionNotFoundMessage);
     return apiError(c, 409, "version_conflict", versionConflictMessage);
   })
+  // Moves the page to the trash of its space. It can be restored for 30 days (see pages/trash.ts).
   .delete("/:id", requireUser, async (c) => {
-    const db = c.get("db");
-    const page = await findAccessiblePage(db, c.get("user"), c.req.param("id"));
-    if (!page) return apiError(c, 404, "not_found", pageNotFoundMessage);
-    // Deleting a page also deletes its revisions, so this cannot be undone.
-    const result = await db
-      .delete(pages)
-      .where(and(eq(pages.id, page.id), eq(pages.spaceId, page.spaceId)))
-      .run();
-    if (result.meta.changes === 0) return apiError(c, 404, "not_found", pageNotFoundMessage);
+    const result = await trashPage(c.get("db"), c.get("user"), c.req.param("id"));
+    if (!result.ok) return apiError(c, 404, "not_found", pageNotFoundMessage);
     return c.body(null, 204);
+  })
+  .post("/:id/restore", requireUser, async (c) => {
+    const result = await restoreTrashedPage(c.get("db"), c.get("user"), c.req.param("id"));
+    if (result.ok) return c.json(toApiPage(result.page), 200);
+    if (result.error === "not_found") return apiError(c, 404, "not_found", pageNotFoundMessage);
+    return apiError(c, 409, "not_in_trash", notInTrashOnRestoreMessage);
+  })
+  // Deletes a page in the trash with its revisions. This cannot be undone.
+  .delete("/:id/permanent", requireUser, requireAdmin, async (c) => {
+    const result = await purgeTrashedPage(c.get("db"), c.get("user"), c.req.param("id"));
+    if (result.ok) return c.body(null, 204);
+    switch (result.error) {
+      case "not_found":
+        return apiError(c, 404, "not_found", pageNotFoundMessage);
+      case "not_in_trash":
+        return apiError(c, 409, "not_in_trash", notInTrashOnPurgeMessage);
+      case "forbidden_role":
+        return apiError(c, 403, "forbidden", purgeForbiddenRoleMessage);
+      case "forbidden_personal":
+        return apiError(c, 403, "forbidden", purgePersonalForbiddenMessage);
+    }
   });
 
 export default pagesApi;

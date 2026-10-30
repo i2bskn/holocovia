@@ -255,3 +255,28 @@ export type SearchResult = {
   // true when more than 50 pages matched; only the first 50 are returned.
   has_more: boolean;
 };
+
+// A page in the trash of its space, without its body. Written out flat like Page.
+export type TrashedPage = {
+  id: string;
+  space_id: string;
+  // The folder the page goes back to when restored. null for the top level, also after the folder is deleted.
+  folder_id: string | null;
+  title: string;
+  version: number;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: number;
+  updated_at: number;
+  // UNIX time in milliseconds when the page was moved to the trash.
+  deleted_at: number;
+  // The user who moved the page to the trash. May refer to a deleted user.
+  deleted_by: string | null;
+  // UNIX time in milliseconds after which the scheduled job deletes the page (deleted_at + 30 days).
+  purge_after: number;
+};
+
+export type TrashList = {
+  // Most recently deleted first.
+  pages: TrashedPage[];
+};

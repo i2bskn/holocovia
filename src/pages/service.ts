@@ -1,4 +1,4 @@
-import { and, eq, sql, type SQL } from "drizzle-orm";
+import { and, eq, isNull, sql, type SQL } from "drizzle-orm";
 import type { CreatePageInput, UpdatePageInput } from "../api/types";
 import { clock } from "../clock";
 import type { Db } from "../db/client";
@@ -64,6 +64,26 @@ export type UpdatePageResult =
   | { ok: true; page: PageRow }
   | { ok: false; error: "not_found" | "version_conflict" | "folder_not_found" };
 
+// The condition of the UPDATE in updatePage and of the revision copied with it.
+// space_id keeps the write inside the space whose access was checked, and deleted_at keeps a page moved
+// to the trash after the check from being updated.
+export function pageUpdateWhere(
+  page: Pick<PageRow, "id" | "spaceId">,
+  version: number,
+  folderId: string | null | undefined,
+): SQL | undefined {
+  const conditions: SQL[] = [
+    eq(pages.id, page.id),
+    eq(pages.spaceId, page.spaceId),
+    eq(pages.version, version),
+    isNull(pages.deletedAt),
+  ];
+  if (typeof folderId === "string") {
+    conditions.push(sql`EXISTS (SELECT 1 FROM ${folders} f WHERE f.id = ${folderId} AND f.space_id = ${page.spaceId})`);
+  }
+  return and(...conditions);
+}
+
 export async function updatePage(
   db: Db,
   user: UserRow,
@@ -73,15 +93,10 @@ export async function updatePage(
   const page = await findAccessiblePage(db, user, pageId);
   if (!page) return { ok: false, error: "not_found" };
 
-  // space_id keeps the write inside the space whose access was just checked.
   // The version is incremented even if nothing changed. Moving to another folder is an update too.
   const folderId = input.folderId;
-  const conditions: SQL[] = [eq(pages.id, page.id), eq(pages.spaceId, page.spaceId), eq(pages.version, input.version)];
-  if (typeof folderId === "string") {
-    conditions.push(sql`EXISTS (SELECT 1 FROM ${folders} f WHERE f.id = ${folderId} AND f.space_id = ${page.spaceId})`);
-  }
   // The revision is copied with the same condition, so that it is kept only when the update happens.
-  const where = and(...conditions);
+  const where = pageUpdateWhere(page, input.version, folderId);
   const update = db
     .update(pages)
     .set({
@@ -107,7 +122,9 @@ export async function updatePage(
 
   // Access is not checked again: the page was visible just before.
   const current = await findPageById(db, page.id);
-  if (!current || current.spaceId !== page.spaceId) return { ok: false, error: "not_found" };
+  if (!current || current.spaceId !== page.spaceId || current.deletedAt !== null) {
+    return { ok: false, error: "not_found" };
+  }
   if (current.version !== input.version) return { ok: false, error: "version_conflict" };
   if (typeof folderId === "string") return { ok: false, error: "folder_not_found" };
   return { ok: false, error: "version_conflict" };

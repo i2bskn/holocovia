@@ -1,5 +1,15 @@
 import { useEffect, useState } from "react";
-import type { Folder, Page, PageRevision, PageRevisionSummary, PageSummary, SearchHit, Space, User } from "../../src/api/types";
+import type {
+  Folder,
+  Page,
+  PageRevision,
+  PageRevisionSummary,
+  PageSummary,
+  SearchHit,
+  Space,
+  TrashedPage,
+  User,
+} from "../../src/api/types";
 import {
   LoginRequiredError,
   type createApiClient,
@@ -108,6 +118,21 @@ export async function loadSpaceView(client: ApiClient, id: string): Promise<Load
     };
   }
   return failure([space, folders, pages]);
+}
+
+export type TrashData = { space: Space; pages: TrashedPage[] };
+
+export async function loadTrashView(client: ApiClient, id: string): Promise<Loaded<TrashData>> {
+  if (!isValidId(id)) return { kind: "notFound" };
+  const param = { param: { id } };
+  const [space, trash] = await Promise.all([
+    request(() => client.api.v1.spaces[":id"].$get(param)),
+    request(() => client.api.v1.spaces[":id"].trash.$get(param)),
+  ]);
+  if (space.kind === "ok" && trash.kind === "ok") {
+    return { kind: "ready", data: { space: space.value, pages: trash.value.pages } };
+  }
+  return failure([space, trash]);
 }
 
 // folders and pages are all those of the space; the screen picks the ones in the folder.

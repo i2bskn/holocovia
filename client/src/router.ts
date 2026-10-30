@@ -3,6 +3,7 @@ import { useSyncExternalStore } from "react";
 export type Route =
   | { name: "home" }
   | { name: "space"; id: string }
+  | { name: "trash"; id: string }
   | { name: "folder"; id: string }
   | { name: "page"; id: string }
   | { name: "pageHistory"; id: string }
@@ -22,6 +23,7 @@ export function isValidId(id: string): boolean {
 const ROUTE_PATTERN = /^\/(spaces|folders|pages)\/([^/]+)$/;
 const PAGE_HISTORY_PATTERN = /^\/pages\/([^/]+)\/history$/;
 const PAGE_REVISION_PATTERN = /^\/pages\/([^/]+)\/revisions\/([^/]+)$/;
+const TRASH_PATTERN = /^\/spaces\/([^/]+)\/trash$/;
 
 // A page version in a path: an integer of 1 or more, without leading zeros. null otherwise.
 function parseVersion(value: string): number | null {
@@ -57,6 +59,11 @@ export function matchRoute(path: string): Route {
   if (pathname === "/search") return { name: "search", query: new URLSearchParams(search).get("q") ?? "" };
   const subroute = matchPageSubroute(pathname);
   if (subroute) return subroute;
+  const trash = TRASH_PATTERN.exec(pathname);
+  if (trash) {
+    const [, id] = trash;
+    return id !== undefined && isValidId(id) ? { name: "trash", id } : { name: "notFound" };
+  }
   const match = ROUTE_PATTERN.exec(pathname);
   if (!match) return { name: "notFound" };
   const [, kind, id] = match;

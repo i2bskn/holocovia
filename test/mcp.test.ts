@@ -14,6 +14,7 @@ import type {
   SearchResult,
   Space,
   SpaceList,
+  TrashList,
 } from "../src/api/types";
 import { safeNext } from "../src/auth/redirect";
 import { issueSession } from "../src/auth/sessions";
@@ -369,7 +370,7 @@ describe("POST /authorize", () => {
 });
 
 describe("MCP", () => {
-  it("initializes and lists the thirteen tools with their annotations", async () => {
+  it("initializes and lists the sixteen tools with their annotations", async () => {
     const { access_token } = await authorizeClient(memberCookies);
     const init = await mcpRequest(access_token, "initialize", {
       protocolVersion: "2025-06-18",
@@ -389,12 +390,15 @@ describe("MCP", () => {
       "create_folder",
       "create_page",
       "delete_folder",
+      "delete_page",
       "get_page",
       "get_page_revision",
       "list_folders",
       "list_page_revisions",
       "list_pages",
       "list_spaces",
+      "list_trash",
+      "restore_page",
       "restore_page_revision",
       "search_pages",
       "update_folder",
@@ -417,6 +421,9 @@ describe("MCP", () => {
       list_page_revisions: readOnly,
       get_page_revision: readOnly,
       restore_page_revision: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+      delete_page: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+      list_trash: readOnly,
+      restore_page: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     });
   });
 
@@ -1144,6 +1151,19 @@ describe("MCP folder tools", () => {
     });
   });
 
+  describe("delete_folder with pages in the trash", () => {
+    it("deletes a folder with only pages in the trash and moves them to the top level", async () => {
+      const folder = await insertFolder({ spaceId: everyone.id });
+      const trashed = await insertPage({ spaceId: everyone.id, folderId: folder.id, deletedAt: Date.now() });
+      const result = toolJson<{ id: string; deleted: boolean }>(
+        await callTool(token, "delete_folder", { folder_id: folder.id }),
+      );
+      expect(result).toEqual({ id: folder.id, deleted: true });
+      expect(await readFolder(folder.id)).toBeUndefined();
+      expect(await readPage(trashed.id)).toEqual({ ...trashed, folderId: null });
+    });
+  });
+
   describe("pages in folders", () => {
     it("creates a page in a folder with create_page", async () => {
       const folder = await insertFolder({ spaceId: everyone.id });
@@ -1190,6 +1210,88 @@ describe("MCP folder tools", () => {
         "folder_id はフォルダの id か null で指定してください",
       );
       expect(await readPage(page.id)).toEqual(page);
+    });
+  });
+});
+
+describe("MCP trash tools", () => {
+  const pageNotFound = "ページが見つかりません";
+  const spaceNotFound = "スペースが見つかりません";
+  const notInTrash = "このページはゴミ箱にありません";
+
+  let token: string;
+  let everyone: SpaceRow;
+
+  beforeEach(async () => {
+    token = (await authorizeClient(memberCookies)).access_token;
+    everyone = await insertSpace("everyone", "Everyone");
+  });
+
+  function readPage(id: string): Promise<PageRow | undefined> {
+    return db.query.pages.findFirst({ where: eq(pages.id, id) });
+  }
+
+  describe("delete_page", () => {
+    it("moves the page to the trash and hides it from get_page, list_pages and search_pages", async () => {
+      const page = await insertPage({ spaceId: everyone.id, title: "Deploy", body: "deploy steps" });
+      const result = toolJson<{ id: string; trashed: boolean }>(
+        await callTool(token, "delete_page", { page_id: page.id }),
+      );
+      expect(result).toEqual({ id: page.id, trashed: true });
+      expect(await readPage(page.id)).toMatchObject({ deletedBy: member.id, version: 1 });
+
+      expectToolError(await callTool(token, "get_page", { page_id: page.id }), pageNotFound);
+      expect(toolJson<PageList>(await callTool(token, "list_pages", { space_id: everyone.id })).pages).toEqual([]);
+      expect(toolJson<SearchResult>(await callTool(token, "search_pages", { query: "deploy" })).hits).toEqual([]);
+      expectToolError(await callTool(token, "delete_page", { page_id: page.id }), pageNotFound);
+    });
+
+    it("does not move a page in a space the user cannot access", async () => {
+      const adminPage = await insertPage({ spaceId: (await insertSpace("admin", "Admins")).id });
+      const othersPage = await insertPage({ spaceId: (await personalSpaceOf(admin)).id });
+      for (const page of [adminPage, othersPage]) {
+        expectToolError(await callTool(token, "delete_page", { page_id: page.id }), pageNotFound);
+        expect(await readPage(page.id)).toEqual(page);
+      }
+    });
+  });
+
+  describe("list_trash", () => {
+    it("returns the same list as the REST API", async () => {
+      const page = await insertPage({ spaceId: everyone.id });
+      toolJson(await callTool(token, "delete_page", { page_id: page.id }));
+      const rest = (await (await send(`/api/v1/spaces/${everyone.id}/trash`, { cookies: memberCookies })).json()) as TrashList;
+      const result = toolJson<TrashList>(await callTool(token, "list_trash", { space_id: everyone.id }));
+      expect(result).toEqual(rest);
+      expect(result.pages.map((p) => p.id)).toEqual([page.id]);
+    });
+
+    it("does not list the trash of a space the user cannot access", async () => {
+      const adminSpace = await insertSpace("admin", "Admins");
+      for (const spaceId of [adminSpace.id, (await personalSpaceOf(admin)).id, "missing"]) {
+        expectToolError(await callTool(token, "list_trash", { space_id: spaceId }), spaceNotFound);
+      }
+    });
+  });
+
+  describe("restore_page", () => {
+    it("takes the page out of the trash and returns it without the body", async () => {
+      const page = await insertPage({ spaceId: everyone.id, body: "# Body" });
+      toolJson(await callTool(token, "delete_page", { page_id: page.id }));
+      const result = toolJson<PageSummary>(await callTool(token, "restore_page", { page_id: page.id }));
+      expect(result).toMatchObject({ id: page.id, version: 1 });
+      expect(result).not.toHaveProperty("body");
+      expect(await readPage(page.id)).toEqual(page);
+    });
+
+    it("reports a page that is not in the trash, and a missing or inaccessible one", async () => {
+      const page = await insertPage({ spaceId: everyone.id });
+      expectToolError(await callTool(token, "restore_page", { page_id: page.id }), notInTrash);
+      const adminPage = await insertPage({ spaceId: (await insertSpace("admin", "Admins")).id, deletedAt: Date.now() });
+      for (const pageId of [adminPage.id, "missing"]) {
+        expectToolError(await callTool(token, "restore_page", { page_id: pageId }), pageNotFound);
+      }
+      expect(await readPage(adminPage.id)).toEqual(adminPage);
     });
   });
 });

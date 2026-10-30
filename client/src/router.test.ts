@@ -60,6 +60,18 @@ describe("matchRoute", () => {
     expect(matchRoute(path)).toEqual({ name: "notFound" });
   });
 
+  it("matches the trash screen of a space", () => {
+    expect(matchRoute("/spaces/x/trash")).toEqual({ name: "trash", id: "x" });
+    expect(matchRoute(`/spaces/${UUID}/trash`)).toEqual({ name: "trash", id: UUID });
+  });
+
+  it.each(["/spaces/x/trash/", "/spaces/a.b/trash", "/spaces/x/trash/1", "/pages/x/trash", "/folders/x/trash"])(
+    "does not match %s as the trash screen",
+    (path) => {
+      expect(matchRoute(path)).toEqual({ name: "notFound" });
+    },
+  );
+
   it("matches the search screen with its query", () => {
     expect(matchRoute("/search?q=abc")).toEqual({ name: "search", query: "abc" });
     expect(matchRoute("/search")).toEqual({ name: "search", query: "" });

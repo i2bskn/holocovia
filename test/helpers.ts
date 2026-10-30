@@ -178,6 +178,9 @@ export async function insertPage(params: {
   createdBy?: string | null;
   at?: number;
   id?: string;
+  // Puts the page in the trash.
+  deletedAt?: number | null;
+  deletedBy?: string | null;
 }): Promise<PageRow> {
   const at = params.at ?? Date.now();
   const createdBy = params.createdBy ?? null;
@@ -194,6 +197,8 @@ export async function insertPage(params: {
       updatedBy: createdBy,
       createdAt: at,
       updatedAt: at,
+      deletedAt: params.deletedAt ?? null,
+      deletedBy: params.deletedBy ?? null,
     })
     .returning();
   if (!page) throw new Error("failed to create page");

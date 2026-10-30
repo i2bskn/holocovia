@@ -1,14 +1,15 @@
-import { and, asc, desc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import type { Db } from "../db/client";
-import { pages, spaces, type PageRow } from "../db/schema";
+import { pages, spaces } from "../db/schema";
 import { accessibleSpacesWhere, canAccessSpace, type SpaceViewer } from "../spaces/access";
 import { findSpaceById } from "../spaces/queries";
+import type { PageSummaryRow } from "./queries";
 
 export const SEARCH_LIMIT = 50;
 // Characters before and after the first match in a snippet.
 const SNIPPET_CONTEXT = 40;
 
-export type SearchHitRow = Omit<PageRow, "body"> & { snippet: string | null };
+export type SearchHitRow = PageSummaryRow & { snippet: string | null };
 export type SearchPagesResult = { hits: SearchHitRow[]; hasMore: boolean };
 
 // Matching uses instr() rather than LIKE: D1 limits LIKE patterns to 50 bytes, shorter than a
@@ -34,6 +35,8 @@ export async function searchPages(
   const where = and(
     access,
     spaceId === undefined ? undefined : eq(pages.spaceId, spaceId),
+    // Pages in the trash are not searched.
+    isNull(pages.deletedAt),
     or(titleMatch, bodyMatch),
   );
   // instr, substr and length count characters on TEXT.

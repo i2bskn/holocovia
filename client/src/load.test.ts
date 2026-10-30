@@ -1,5 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
-import type { Folder, Page, PageRevision, PageRevisionSummary, PageSummary, SearchHit, Space } from "../../src/api/types";
+import type {
+  Folder,
+  Page,
+  PageRevision,
+  PageRevisionSummary,
+  PageSummary,
+  SearchHit,
+  Space,
+  TrashedPage,
+} from "../../src/api/types";
 import { createApiClient, createApiFetch } from "./api";
 import {
   loadFolderView,
@@ -8,6 +17,7 @@ import {
   loadPageView,
   loadSearchView,
   loadSpaceView,
+  loadTrashView,
 } from "./load";
 
 const SPACE: Space = { id: "s1", kind: "everyone", name: "開発", created_at: 1, updated_at: 2 };
@@ -329,6 +339,55 @@ describe("loadPageRevisionView", () => {
   it("does not call the API for an invalid ID", async () => {
     const { client, fetch } = setup({});
     expect(await loadPageRevisionView(client, "../users", 1)).toEqual({ kind: "notFound" });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("loadTrashView", () => {
+  const TRASHED: TrashedPage = {
+    ...SUMMARY,
+    deleted_at: 3,
+    deleted_by: "u1",
+    purge_after: 3 + 30 * 86_400_000,
+  };
+
+  it("shows the space and the pages in its trash", async () => {
+    const { client } = setup({
+      "/api/v1/spaces/s1": [json(200, SPACE)],
+      "/api/v1/spaces/s1/trash": [json(200, { pages: [TRASHED] })],
+    });
+    expect(await loadTrashView(client, "s1")).toEqual({ kind: "ready", data: { space: SPACE, pages: [TRASHED] } });
+  });
+
+  it("is not found when the space is 404", async () => {
+    const { client } = setup({
+      "/api/v1/spaces/s1": [apiError(404, "スペースが見つかりません")],
+      "/api/v1/spaces/s1/trash": [apiError(404, "スペースが見つかりません")],
+    });
+    expect(await loadTrashView(client, "s1")).toEqual({ kind: "notFound" });
+  });
+
+  it("is an error with the API message when the trash is 500", async () => {
+    const { client } = setup({
+      "/api/v1/spaces/s1": [json(200, SPACE)],
+      "/api/v1/spaces/s1/trash": [apiError(500, "サーバーでエラーが発生しました")],
+    });
+    expect(await loadTrashView(client, "s1")).toEqual({ kind: "error", message: "サーバーでエラーが発生しました" });
+  });
+
+  it("moves to the login page when the trash stays 401 after the refresh", async () => {
+    const { client, redirectToLogin } = setup({
+      "/api/v1/spaces/s1": [json(200, SPACE)],
+      "/api/v1/spaces/s1/trash": [unauthorized, unauthorized],
+      "/auth/refresh": [() => new Response(null, { status: 401 })],
+    });
+    expect(await loadTrashView(client, "s1")).toEqual({ kind: "redirecting" });
+    expect(redirectToLogin).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not call the API for an invalid ID", async () => {
+    const { client, fetch } = setup({});
+    expect(await loadTrashView(client, "../users")).toEqual({ kind: "notFound" });
     expect(fetch).not.toHaveBeenCalled();
   });
 });

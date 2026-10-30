@@ -178,11 +178,16 @@ describe("keeping revisions on update", () => {
     expect(await readRevisions(page.id)).toHaveLength(20);
   });
 
-  it("deletes the revisions with the page", async () => {
+  it("keeps the revisions when the page is moved to the trash, and deletes them with the page", async () => {
     expect((await patchPage(page.id, memberCookies, { version: 1, body: "x" })).status).toBe(200);
     expect((await send(`/api/v1/pages/${page.id}`, { method: "DELETE", cookies: memberCookies })).status).toBe(204);
-    const row = await env.DB.prepare("SELECT COUNT(*) AS count FROM page_revisions").first<{ count: number }>();
-    expect(row?.count).toBe(0);
+    const count = async () =>
+      (await env.DB.prepare("SELECT COUNT(*) AS count FROM page_revisions").first<{ count: number }>())?.count;
+    expect(await count()).toBe(1);
+    expect(
+      (await send(`/api/v1/pages/${page.id}/permanent`, { method: "DELETE", cookies: adminCookies })).status,
+    ).toBe(204);
+    expect(await count()).toBe(0);
   });
 });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Page } from "../../src/api/types";
-import { restoreRevision } from "./actions";
+import { purgeTrashedPage, restoreRevision, restoreTrashedPage, trashPage } from "./actions";
 import { createApiClient, createApiFetch } from "./api";
 
 const PAGE: Page = {
@@ -18,13 +18,13 @@ const PAGE: Page = {
 
 const RESTORE_URL = "/api/v1/pages/p1/revisions/2/restore";
 
-// fetch that answers the restore URL with reply. /auth/refresh answers 401 unless given, so a 401 ends
-// at the login page.
-function setup(reply: () => Response | Promise<Response>, refreshStatus = 401) {
+// fetch that answers expectedUrl (the restore URL unless given) with reply. /auth/refresh answers 401
+// unless given, so a 401 ends at the login page.
+function setup(reply: () => Response | Promise<Response>, refreshStatus = 401, expectedUrl = RESTORE_URL) {
   const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
     const url = String(input);
     if (url === "/auth/refresh") return new Response(null, { status: refreshStatus });
-    if (url !== RESTORE_URL) throw new Error(`unexpected fetch: ${url}`);
+    if (url !== expectedUrl) throw new Error(`unexpected fetch: ${url}`);
     return reply();
   });
   const redirectToLogin = vi.fn<(url: string) => void>();
@@ -81,5 +81,112 @@ describe("restoreRevision", () => {
     const { client, redirectToLogin } = setup(apiError(401, "ログインしてください"));
     expect(await restoreRevision(client, "p1", 2, 4)).toEqual({ kind: "redirecting" });
     expect(redirectToLogin).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("trashPage", () => {
+  const url = "/api/v1/pages/p1";
+
+  it("sends DELETE and is ok on 204", async () => {
+    const { client, fetch } = setup(() => new Response(null, { status: 204 }), 401, url);
+    expect(await trashPage(client, "p1")).toEqual({ kind: "ok" });
+    expect(fetch.mock.calls[0]?.[1]?.method).toBe("DELETE");
+  });
+
+  it("is not found on 404", async () => {
+    const { client } = setup(apiError(404, "ページが見つかりません"), 401, url);
+    expect(await trashPage(client, "p1")).toEqual({ kind: "notFound" });
+  });
+
+  it("is an error with the API message on 500", async () => {
+    const { client } = setup(apiError(500, "サーバーでエラーが発生しました"), 401, url);
+    expect(await trashPage(client, "p1")).toEqual({ kind: "error", message: "サーバーでエラーが発生しました" });
+  });
+
+  it("is unknown when fetch rejects", async () => {
+    const { client } = setup(() => Promise.reject(new TypeError("Failed to fetch")), 401, url);
+    expect(await trashPage(client, "p1")).toEqual({ kind: "unknown" });
+  });
+
+  it("is redirecting when login is required", async () => {
+    const { client, redirectToLogin } = setup(apiError(401, "ログインしてください"), 401, url);
+    expect(await trashPage(client, "p1")).toEqual({ kind: "redirecting" });
+    expect(redirectToLogin).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("restoreTrashedPage", () => {
+  const url = "/api/v1/pages/p1/restore";
+
+  it("sends POST and returns the page on 200", async () => {
+    const { client, fetch } = setup(() => Response.json(PAGE), 401, url);
+    expect(await restoreTrashedPage(client, "p1")).toEqual({ kind: "ok", page: PAGE });
+    expect(fetch.mock.calls[0]?.[1]?.method).toBe("POST");
+  });
+
+  it("is a conflict on 409", async () => {
+    const { client } = setup(apiError(409, "このページはゴミ箱にありません"), 401, url);
+    expect(await restoreTrashedPage(client, "p1")).toEqual({ kind: "conflict" });
+  });
+
+  it("is not found on 404", async () => {
+    const { client } = setup(apiError(404, "ページが見つかりません"), 401, url);
+    expect(await restoreTrashedPage(client, "p1")).toEqual({ kind: "notFound" });
+  });
+
+  it("is an error with the API message on 500", async () => {
+    const { client } = setup(apiError(500, "サーバーでエラーが発生しました"), 401, url);
+    expect(await restoreTrashedPage(client, "p1")).toEqual({ kind: "error", message: "サーバーでエラーが発生しました" });
+  });
+
+  it("is unknown when fetch rejects", async () => {
+    const { client } = setup(() => Promise.reject(new TypeError("Failed to fetch")), 401, url);
+    expect(await restoreTrashedPage(client, "p1")).toEqual({ kind: "unknown" });
+  });
+
+  it("is redirecting when login is required", async () => {
+    const { client } = setup(apiError(401, "ログインしてください"), 401, url);
+    expect(await restoreTrashedPage(client, "p1")).toEqual({ kind: "redirecting" });
+  });
+});
+
+describe("purgeTrashedPage", () => {
+  const url = "/api/v1/pages/p1/permanent";
+
+  it("sends DELETE and is ok on 204", async () => {
+    const { client, fetch } = setup(() => new Response(null, { status: 204 }), 401, url);
+    expect(await purgeTrashedPage(client, "p1")).toEqual({ kind: "ok" });
+    expect(fetch.mock.calls[0]?.[1]?.method).toBe("DELETE");
+  });
+
+  it("is forbidden with the API message on 403", async () => {
+    const message = "個人スペースのページは完全に削除できません。30 日たつと自動で削除されます";
+    const { client } = setup(apiError(403, message), 401, url);
+    expect(await purgeTrashedPage(client, "p1")).toEqual({ kind: "forbidden", message });
+  });
+
+  it("is a conflict on 409", async () => {
+    const { client } = setup(apiError(409, "ゴミ箱にないページは完全に削除できません。先にゴミ箱へ移してください"), 401, url);
+    expect(await purgeTrashedPage(client, "p1")).toEqual({ kind: "conflict" });
+  });
+
+  it("is not found on 404", async () => {
+    const { client } = setup(apiError(404, "ページが見つかりません"), 401, url);
+    expect(await purgeTrashedPage(client, "p1")).toEqual({ kind: "notFound" });
+  });
+
+  it("is an error with the API message on 500", async () => {
+    const { client } = setup(apiError(500, "サーバーでエラーが発生しました"), 401, url);
+    expect(await purgeTrashedPage(client, "p1")).toEqual({ kind: "error", message: "サーバーでエラーが発生しました" });
+  });
+
+  it("is unknown when fetch rejects", async () => {
+    const { client } = setup(() => Promise.reject(new TypeError("Failed to fetch")), 401, url);
+    expect(await purgeTrashedPage(client, "p1")).toEqual({ kind: "unknown" });
+  });
+
+  it("is redirecting when login is required", async () => {
+    const { client } = setup(apiError(401, "ログインしてください"), 401, url);
+    expect(await purgeTrashedPage(client, "p1")).toEqual({ kind: "redirecting" });
   });
 });
