@@ -4,11 +4,14 @@ import { createApiClient, createApiFetch, unexpectedResponseMessage } from "./ap
 import { Link } from "./Link";
 import { loadMe, useView } from "./load";
 import { type Route, matchRoute, navigate, usePath } from "./router";
+import { markLeaving } from "./unload";
 import { LoadError, NotFound, useDocumentTitle } from "./views/common";
 import { ErrorBoundary } from "./views/ErrorBoundary";
 import { FolderView } from "./views/FolderView";
 import { HomeView } from "./views/HomeView";
+import { PageEditView } from "./views/PageEditView";
 import { PageHistoryView } from "./views/PageHistoryView";
+import { PageNewView } from "./views/PageNewView";
 import { PageRevisionView } from "./views/PageRevisionView";
 import { PageView } from "./views/PageView";
 import { SearchView } from "./views/SearchView";
@@ -19,7 +22,10 @@ import { TrashView } from "./views/TrashView";
 const client = createApiClient(
   createApiFetch({
     fetch: globalThis.fetch.bind(globalThis),
-    redirectToLogin: (url) => location.assign(url),
+    redirectToLogin: (url) => {
+      markLeaving();
+      location.assign(url);
+    },
     currentPath: () => location.pathname + location.search,
   }),
 );
@@ -68,6 +74,18 @@ function Screen({ route, user }: { route: Route; user: User }) {
       return <PageHistoryView client={client} id={route.id} />;
     case "pageRevision":
       return <PageRevisionView client={client} id={route.id} version={route.version} origin={location.origin} />;
+    case "pageNew":
+      return (
+        <PageNewView
+          client={client}
+          spaceId={route.spaceId}
+          folderId={route.folderId}
+          userId={user.id}
+          origin={location.origin}
+        />
+      );
+    case "pageEdit":
+      return <PageEditView client={client} id={route.id} userId={user.id} origin={location.origin} />;
     case "search":
       return <SearchView client={client} query={route.query} />;
     case "notFound":

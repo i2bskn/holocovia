@@ -187,6 +187,27 @@ export async function loadPageView(client: ApiClient, id: string): Promise<Loade
   };
 }
 
+// The page form needs every folder of the space to choose from, so both are required.
+export type PageNewData = { space: Space; folders: Folder[] };
+
+export async function loadPageNewView(client: ApiClient, spaceId: string): Promise<Loaded<PageNewData>> {
+  if (!isValidId(spaceId)) return { kind: "notFound" };
+  const param = { param: { id: spaceId } };
+  const [space, folders] = await Promise.all([
+    request(() => client.api.v1.spaces[":id"].$get(param)),
+    request(() => client.api.v1.spaces[":id"].folders.$get(param)),
+  ]);
+  if (space.kind === "ok" && folders.kind === "ok") {
+    return { kind: "ready", data: { space: space.value, folders: folders.value.folders } };
+  }
+  return failure([space, folders]);
+}
+
+// The same data as the page screen. When folders is null the page can be edited, but not moved.
+export function loadPageEditView(client: ApiClient, id: string): Promise<Loaded<PageData>> {
+  return loadPageView(client, id);
+}
+
 // space is null when it could not be loaded; the history is shown anyway.
 export type PageHistoryData = { page: Page; space: Space | null; revisions: PageRevisionSummary[] };
 

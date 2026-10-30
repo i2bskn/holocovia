@@ -12,7 +12,9 @@ import type {
 import { createApiClient, createApiFetch } from "./api";
 import {
   loadFolderView,
+  loadPageEditView,
   loadPageHistoryView,
+  loadPageNewView,
   loadPageRevisionView,
   loadPageView,
   loadSearchView,
@@ -215,6 +217,85 @@ describe("loadPageView", () => {
       data: { page: { ...PAGE, space_id: "a/b" }, space: null, folders: null },
     });
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("loadPageNewView", () => {
+  it("shows the space and its folders", async () => {
+    const { client } = setup({
+      "/api/v1/spaces/s1": [json(200, SPACE)],
+      "/api/v1/spaces/s1/folders": [json(200, { folders: [FOLDER] })],
+    });
+    expect(await loadPageNewView(client, "s1")).toEqual({ kind: "ready", data: { space: SPACE, folders: [FOLDER] } });
+  });
+
+  it("is not found when the space is 404", async () => {
+    const { client } = setup({
+      "/api/v1/spaces/s1": [apiError(404, "スペースが見つかりません")],
+      "/api/v1/spaces/s1/folders": [apiError(404, "スペースが見つかりません")],
+    });
+    expect(await loadPageNewView(client, "s1")).toEqual({ kind: "notFound" });
+  });
+
+  it("is an error with the API message when the folders fail", async () => {
+    const { client } = setup({
+      "/api/v1/spaces/s1": [json(200, SPACE)],
+      "/api/v1/spaces/s1/folders": [apiError(500, "サーバーでエラーが発生しました")],
+    });
+    expect(await loadPageNewView(client, "s1")).toEqual({ kind: "error", message: "サーバーでエラーが発生しました" });
+  });
+
+  it("moves to the login page when the folders stay 401 after the refresh", async () => {
+    const { client, redirectToLogin } = setup({
+      "/api/v1/spaces/s1": [json(200, SPACE)],
+      "/api/v1/spaces/s1/folders": [unauthorized, unauthorized],
+    });
+    expect(await loadPageNewView(client, "s1")).toEqual({ kind: "redirecting" });
+    expect(redirectToLogin).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not call the API for an invalid ID", async () => {
+    const { client, fetch } = setup({});
+    expect(await loadPageNewView(client, "a.b")).toEqual({ kind: "notFound" });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("loadPageEditView", () => {
+  it("shows the page, its space and the folders of the space", async () => {
+    const { client } = setup({
+      "/api/v1/pages/p1": [json(200, PAGE)],
+      "/api/v1/spaces/s1": [json(200, SPACE)],
+      "/api/v1/spaces/s1/folders": [json(200, { folders: [FOLDER] })],
+    });
+    expect(await loadPageEditView(client, "p1")).toEqual({
+      kind: "ready",
+      data: { page: PAGE, space: SPACE, folders: [FOLDER] },
+    });
+  });
+
+  it("shows the page without the folders when the folders fail", async () => {
+    const { client } = setup({
+      "/api/v1/pages/p1": [json(200, PAGE)],
+      "/api/v1/spaces/s1": [json(200, SPACE)],
+      "/api/v1/spaces/s1/folders": [apiError(500, "失敗")],
+    });
+    expect(await loadPageEditView(client, "p1")).toEqual({
+      kind: "ready",
+      data: { page: PAGE, space: SPACE, folders: null },
+    });
+  });
+
+  it("is not found without loading the space when the page is 404", async () => {
+    const { client, calls } = setup({ "/api/v1/pages/p1": [apiError(404, "ページが見つかりません")] });
+    expect(await loadPageEditView(client, "p1")).toEqual({ kind: "notFound" });
+    expect(calls("/api/v1/spaces/s1")).toBe(0);
+  });
+
+  it("does not call the API for an invalid ID", async () => {
+    const { client, fetch } = setup({});
+    expect(await loadPageEditView(client, "a.b")).toEqual({ kind: "notFound" });
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
 

@@ -5,6 +5,7 @@ import { type ApiClient, loadSpaceView, useView } from "../load";
 import { isValidId } from "../router";
 import { ViewStatus, useDocumentTitle, viewTitle } from "./common";
 import { EntryList } from "./EntryList";
+import { FolderActions } from "./FolderActions";
 
 export function SpaceView({ client, id }: { client: ApiClient; id: string }) {
   const [state, reload] = useView(() => loadSpaceView(client, id), id);
@@ -34,6 +35,7 @@ export function SpaceView({ client, id }: { client: ApiClient; id: string }) {
           </Link>
         )}
       </div>
+      <FolderActions client={client} spaceId={space.id} folders={folders} folder={null} onReload={reload} />
       {/* Only the top level; the rest is shown on the folder screens. */}
       <EntryList
         folders={childFolders(folders, null)}

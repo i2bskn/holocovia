@@ -8,6 +8,9 @@ export type Route =
   | { name: "page"; id: string }
   | { name: "pageHistory"; id: string }
   | { name: "pageRevision"; id: string; version: number }
+  // folderId is the folder to create the page in, from ?folder=; null when missing or invalid.
+  | { name: "pageNew"; spaceId: string; folderId: string | null }
+  | { name: "pageEdit"; id: string }
   | { name: "search"; query: string }
   | { name: "notFound" };
 
@@ -22,8 +25,10 @@ export function isValidId(id: string): boolean {
 
 const ROUTE_PATTERN = /^\/(spaces|folders|pages)\/([^/]+)$/;
 const PAGE_HISTORY_PATTERN = /^\/pages\/([^/]+)\/history$/;
+const PAGE_EDIT_PATTERN = /^\/pages\/([^/]+)\/edit$/;
 const PAGE_REVISION_PATTERN = /^\/pages\/([^/]+)\/revisions\/([^/]+)$/;
 const TRASH_PATTERN = /^\/spaces\/([^/]+)\/trash$/;
+const PAGE_NEW_PATTERN = /^\/spaces\/([^/]+)\/new$/;
 
 // A page version in a path: an integer of 1 or more, without leading zeros. null otherwise.
 function parseVersion(value: string): number | null {
@@ -38,6 +43,11 @@ function matchPageSubroute(pathname: string): Route | null {
     const [, id] = history;
     return id !== undefined && isValidId(id) ? { name: "pageHistory", id } : { name: "notFound" };
   }
+  const edit = PAGE_EDIT_PATTERN.exec(pathname);
+  if (edit) {
+    const [, id] = edit;
+    return id !== undefined && isValidId(id) ? { name: "pageEdit", id } : { name: "notFound" };
+  }
   const revision = PAGE_REVISION_PATTERN.exec(pathname);
   if (revision) {
     const [, id, value] = revision;
@@ -49,7 +59,8 @@ function matchPageSubroute(pathname: string): Route | null {
   return null;
 }
 
-// path is the pathname followed by the search part, if any. Only /search reads the search part.
+// path is the pathname followed by the search part, if any. Only /search and /spaces/:id/new read the
+// search part.
 export function matchRoute(path: string): Route {
   const index = path.indexOf("?");
   const pathname = index === -1 ? path : path.slice(0, index);
@@ -63,6 +74,14 @@ export function matchRoute(path: string): Route {
   if (trash) {
     const [, id] = trash;
     return id !== undefined && isValidId(id) ? { name: "trash", id } : { name: "notFound" };
+  }
+  const pageNew = PAGE_NEW_PATTERN.exec(pathname);
+  if (pageNew) {
+    const [, spaceId] = pageNew;
+    if (spaceId === undefined || !isValidId(spaceId)) return { name: "notFound" };
+    // A missing, empty or invalid folder is not an error; the page is created at the top level.
+    const folder = new URLSearchParams(search).get("folder");
+    return { name: "pageNew", spaceId, folderId: folder !== null && isValidId(folder) ? folder : null };
   }
   const match = ROUTE_PATTERN.exec(pathname);
   if (!match) return { name: "notFound" };
@@ -99,9 +118,32 @@ export function usePath(): string {
   return useSyncExternalStore(subscribe, getPath);
 }
 
+// Asked before navigate() moves to another path; returning false cancels the move. Set by screens with
+// unsaved changes. The back and forward buttons (popstate) cannot be stopped and do not ask it.
+export type NavigationGuard = () => boolean;
+
+let navigationGuard: NavigationGuard | null = null;
+
+// Sets the guard, replacing the current one; null removes it. Returns a function that removes the guard
+// only if it is still the one set here, so that a screen does not remove the guard of the next screen.
+export function setNavigationGuard(guard: NavigationGuard | null): () => void {
+  navigationGuard = guard;
+  return () => {
+    if (navigationGuard === guard) navigationGuard = null;
+  };
+}
+
+// Whether navigate() goes on from currentPath to nextPath. The guard is only asked when the path changes.
+export function shouldNavigate(currentPath: string, nextPath: string, guard: NavigationGuard | null): boolean {
+  if (nextPath === currentPath) return true;
+  return guard === null || guard();
+}
+
 // Moves to a path inside the SPA. The scroll position is not restored on back; that is left to the browser.
 export function navigate(path: string): void {
-  if (path !== location.pathname + location.search) {
+  const current = getPath();
+  if (!shouldNavigate(current, path, navigationGuard)) return;
+  if (path !== current) {
     history.pushState(null, "", path);
     for (const listener of listeners) listener();
   }

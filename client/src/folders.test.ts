@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Folder } from "../../src/api/types";
-import { childFolders, folderPath } from "./folders";
+import { childFolders, descendantIds, folderPath } from "./folders";
 
 function folder(id: string, parentId: string | null): Folder {
   return {
@@ -52,5 +52,26 @@ describe("childFolders", () => {
 
   it("returns the top level folders for null", () => {
     expect(childFolders([CHILD, OTHER, ROOT], null)).toEqual([OTHER, ROOT]);
+  });
+});
+
+describe("descendantIds", () => {
+  it("returns the folders inside the folder at any depth, without the folder", () => {
+    const greatGrandchild = folder("great", "grandchild");
+    const sibling = folder("sibling", "root");
+    const folders = [OTHER, greatGrandchild, GRANDCHILD, ROOT, CHILD, sibling];
+    expect(descendantIds(folders, "root")).toEqual(new Set(["child", "grandchild", "great", "sibling"]));
+    expect(descendantIds(folders, "child")).toEqual(new Set(["grandchild", "great"]));
+    expect(descendantIds(folders, "great")).toEqual(new Set());
+    expect(descendantIds(folders, "missing")).toEqual(new Set());
+  });
+
+  it("stops on a cycle", () => {
+    const a = folder("a", "c");
+    const b = folder("b", "a");
+    const c = folder("c", "b");
+    expect(descendantIds([a, b, c], "a")).toEqual(new Set(["b", "c"]));
+    const self = folder("self", "self");
+    expect(descendantIds([self], "self")).toEqual(new Set());
   });
 });

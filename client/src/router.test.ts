@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { type ClickEvent, matchRoute, shouldHandleClick } from "./router";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { type ClickEvent, matchRoute, navigate, setNavigationGuard, shouldHandleClick, shouldNavigate } from "./router";
 
 const UUID = "0f8fad5b-d9cb-469f-a165-70867728950e";
 
@@ -98,6 +98,134 @@ describe("matchRoute", () => {
       expect(matchRoute(path)).toEqual({ name: "notFound" });
     },
   );
+});
+
+describe("matchRoute for the page form", () => {
+  it("matches the page creation screen with the folder from the query", () => {
+    expect(matchRoute("/spaces/x/new")).toEqual({ name: "pageNew", spaceId: "x", folderId: null });
+    expect(matchRoute(`/spaces/${UUID}/new`)).toEqual({ name: "pageNew", spaceId: UUID, folderId: null });
+    expect(matchRoute("/spaces/x/new?folder=f1")).toEqual({ name: "pageNew", spaceId: "x", folderId: "f1" });
+    expect(matchRoute(`/spaces/x/new?folder=${UUID}`)).toEqual({ name: "pageNew", spaceId: "x", folderId: UUID });
+  });
+
+  it.each(["/spaces/x/new?folder=", "/spaces/x/new?folder=a.b", "/spaces/x/new?folder=..%2Fx", "/spaces/x/new?other=f1"])(
+    "treats the folder in %s as missing",
+    (path) => {
+      expect(matchRoute(path)).toEqual({ name: "pageNew", spaceId: "x", folderId: null });
+    },
+  );
+
+  it("matches the page edit screen", () => {
+    expect(matchRoute("/pages/x/edit")).toEqual({ name: "pageEdit", id: "x" });
+    expect(matchRoute(`/pages/${UUID}/edit`)).toEqual({ name: "pageEdit", id: UUID });
+    expect(matchRoute("/pages/x/edit?a=1")).toEqual({ name: "pageEdit", id: "x" });
+  });
+
+  it.each([
+    "/spaces/x/new/",
+    "/spaces/x/new/1",
+    "/spaces/a.b/new",
+    "/spaces/a.b/new?folder=f1",
+    "/folders/x/new",
+    "/pages/x/new",
+    "/pages/x/edit/",
+    "/pages/x/edit/1",
+    "/pages/a.b/edit",
+    "/spaces/x/edit",
+  ])("does not match %s", (path) => {
+    expect(matchRoute(path)).toEqual({ name: "notFound" });
+  });
+});
+
+describe("shouldNavigate", () => {
+  it("goes on without a guard", () => {
+    expect(shouldNavigate("/a", "/b", null)).toBe(true);
+  });
+
+  it("asks the guard when the path changes", () => {
+    const guard = vi.fn(() => false);
+    expect(shouldNavigate("/a", "/b", guard)).toBe(false);
+    expect(guard).toHaveBeenCalledTimes(1);
+    expect(shouldNavigate("/a", "/b", () => true)).toBe(true);
+  });
+
+  it("does not ask the guard for the current path", () => {
+    const guard = vi.fn(() => false);
+    expect(shouldNavigate("/a?q=1", "/a?q=1", guard)).toBe(true);
+    expect(guard).not.toHaveBeenCalled();
+  });
+});
+
+describe("navigate", () => {
+  let release: (() => void) | null = null;
+
+  // navigate() reads location and calls history and window, which Node does not have.
+  function stubBrowser(path: string) {
+    const pushState = vi.fn();
+    const scrollTo = vi.fn();
+    vi.stubGlobal("location", { pathname: path, search: "" });
+    vi.stubGlobal("history", { pushState });
+    vi.stubGlobal("window", { scrollTo });
+    return { pushState, scrollTo };
+  }
+
+  afterEach(() => {
+    release?.();
+    release = null;
+    vi.unstubAllGlobals();
+  });
+
+  it("moves when there is no guard", () => {
+    const { pushState } = stubBrowser("/a");
+    navigate("/b");
+    expect(pushState).toHaveBeenCalledWith(null, "", "/b");
+  });
+
+  it("does not move when the guard returns false", () => {
+    const { pushState, scrollTo } = stubBrowser("/a");
+    const guard = vi.fn(() => false);
+    release = setNavigationGuard(guard);
+    navigate("/b");
+    expect(guard).toHaveBeenCalledTimes(1);
+    expect(pushState).not.toHaveBeenCalled();
+    expect(scrollTo).not.toHaveBeenCalled();
+  });
+
+  it("moves when the guard returns true", () => {
+    const { pushState } = stubBrowser("/a");
+    release = setNavigationGuard(() => true);
+    navigate("/b");
+    expect(pushState).toHaveBeenCalledWith(null, "", "/b");
+  });
+
+  it("does not ask the guard for the current path", () => {
+    const { pushState, scrollTo } = stubBrowser("/a");
+    const guard = vi.fn(() => false);
+    release = setNavigationGuard(guard);
+    navigate("/a");
+    expect(guard).not.toHaveBeenCalled();
+    expect(pushState).not.toHaveBeenCalled();
+    expect(scrollTo).toHaveBeenCalledWith(0, 0);
+  });
+
+  it("removes the guard with the returned function", () => {
+    const { pushState } = stubBrowser("/a");
+    const remove = setNavigationGuard(() => false);
+    remove();
+    navigate("/b");
+    expect(pushState).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not remove a guard that replaced the one being removed", () => {
+    const { pushState } = stubBrowser("/a");
+    const removeFirst = setNavigationGuard(() => false);
+    const second = vi.fn(() => false);
+    release = setNavigationGuard(second);
+    removeFirst();
+    navigate("/b");
+    expect(second).toHaveBeenCalledTimes(1);
+    expect(pushState).not.toHaveBeenCalled();
+  });
 });
 
 describe("shouldHandleClick", () => {

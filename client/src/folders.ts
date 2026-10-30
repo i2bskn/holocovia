@@ -20,3 +20,24 @@ export function folderPath(folders: Folder[], folderId: string): Folder[] {
 export function childFolders(folders: Folder[], parentId: string | null): Folder[] {
   return folders.filter((folder) => folder.parent_id === parentId);
 }
+
+// The IDs of the folders inside id, at any depth, without id itself. Stops on a cycle.
+export function descendantIds(folders: Folder[], id: string): Set<string> {
+  const children = new Map<string, string[]>();
+  for (const folder of folders) {
+    if (folder.parent_id === null) continue;
+    const list = children.get(folder.parent_id);
+    if (list) list.push(folder.id);
+    else children.set(folder.parent_id, [folder.id]);
+  }
+  const found = new Set<string>();
+  const queue = [id];
+  for (let current = queue.shift(); current !== undefined; current = queue.shift()) {
+    for (const child of children.get(current) ?? []) {
+      if (child === id || found.has(child)) continue;
+      found.add(child);
+      queue.push(child);
+    }
+  }
+  return found;
+}

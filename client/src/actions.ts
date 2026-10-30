@@ -1,5 +1,6 @@
 import type { Page } from "../../src/api/types";
 import { LoginRequiredError, responseErrorMessage, unexpectedResponseMessage } from "./api";
+import type { PageChanges } from "./edit";
 import type { ApiClient } from "./load";
 
 // The outcomes shared by the actions below.
@@ -111,4 +112,118 @@ export async function purgeTrashedPage(client: ApiClient, pageId: string): Promi
   if (res.status === 409) return { kind: "conflict" };
   if (res.status === 403) return { kind: "forbidden", message: await responseErrorMessage(res) };
   return { kind: "error", message: await responseErrorMessage(res) };
+}
+
+export type CreatePageResult =
+  | { kind: "ok"; page: Page }
+  // The space is missing or not accessible.
+  | { kind: "notFound" }
+  | SendFailure;
+
+// Creates a page. The server trims the title. folderId null creates it at the top level. Never rejects.
+export async function createPage(
+  client: ApiClient,
+  spaceId: string,
+  input: { title: string; body: string; folderId: string | null },
+): Promise<CreatePageResult> {
+  const sent = await send(() =>
+    client.api.v1.spaces[":id"].pages.$post({
+      param: { id: spaceId },
+      json: { title: input.title, body: input.body, folder_id: input.folderId },
+    }),
+  );
+  if (sent.kind !== "response") return sent;
+  const { res } = sent;
+  if (res.ok) {
+    try {
+      return { kind: "ok", page: await res.json() };
+    } catch {
+      return { kind: "error", message: unexpectedResponseMessage(res.status) };
+    }
+  }
+  if (res.status === 404) return { kind: "notFound" };
+  return { kind: "error", message: await responseErrorMessage(res) };
+}
+
+export type UpdatePageResult =
+  | { kind: "ok"; page: Page }
+  // The page is missing, in the trash, or not accessible.
+  | { kind: "notFound" }
+  // Someone else updated the page after it was loaded.
+  | { kind: "conflict" }
+  | SendFailure;
+
+// Updates a page. version is the version of the page as loaded; changes has at least one field.
+// Never rejects.
+export async function updatePage(
+  client: ApiClient,
+  pageId: string,
+  version: number,
+  changes: PageChanges,
+): Promise<UpdatePageResult> {
+  const sent = await send(() =>
+    client.api.v1.pages[":id"].$patch({ param: { id: pageId }, json: { version, ...changes } }),
+  );
+  if (sent.kind !== "response") return sent;
+  const { res } = sent;
+  if (res.ok) {
+    try {
+      return { kind: "ok", page: await res.json() };
+    } catch {
+      return { kind: "error", message: unexpectedResponseMessage(res.status) };
+    }
+  }
+  if (res.status === 404) return { kind: "notFound" };
+  if (res.status === 409) return { kind: "conflict" };
+  return { kind: "error", message: await responseErrorMessage(res) };
+}
+
+// The outcome of the folder actions. Errors of the request (400) and of the state of the folders (409:
+// a cycle, a folder that is not empty) are shown with the server's message.
+export type FolderActionResult =
+  | { kind: "ok" }
+  // The folder, or the space or parent the folder is created in, is missing or not accessible.
+  | { kind: "notFound" }
+  | SendFailure;
+
+async function folderActionResult<R extends { ok: boolean; status: number; json(): Promise<unknown> }>(
+  sent: { kind: "response"; res: R } | SendFailure,
+): Promise<FolderActionResult> {
+  if (sent.kind !== "response") return sent;
+  const { res } = sent;
+  if (res.ok) return { kind: "ok" };
+  if (res.status === 404) return { kind: "notFound" };
+  return { kind: "error", message: await responseErrorMessage(res) };
+}
+
+// Creates a folder in parentId, or at the top level of the space for null. Never rejects.
+export async function createFolder(
+  client: ApiClient,
+  spaceId: string,
+  input: { name: string; parentId: string | null },
+): Promise<FolderActionResult> {
+  return folderActionResult(
+    await send(() =>
+      client.api.v1.spaces[":id"].folders.$post({
+        param: { id: spaceId },
+        json: { name: input.name, parent_id: input.parentId },
+      }),
+    ),
+  );
+}
+
+// Renames a folder or moves it (parent_id null moves it to the top level). Never rejects.
+export async function updateFolder(
+  client: ApiClient,
+  folderId: string,
+  changes: { name?: string; parent_id?: string | null },
+): Promise<FolderActionResult> {
+  return folderActionResult(
+    await send(() => client.api.v1.folders[":id"].$patch({ param: { id: folderId }, json: changes })),
+  );
+}
+
+// Deletes an empty folder. Never rejects.
+export async function deleteFolder(client: ApiClient, folderId: string): Promise<FolderActionResult> {
+  return folderActionResult(await send(() => client.api.v1.folders[":id"].$delete({ param: { id: folderId } })));
 }

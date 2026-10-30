@@ -5,6 +5,7 @@ import { type ApiClient, loadFolderView, useView } from "../load";
 import { isValidId } from "../router";
 import { ViewStatus, useDocumentTitle, viewTitle } from "./common";
 import { EntryList } from "./EntryList";
+import { FolderActions } from "./FolderActions";
 
 export function FolderView({ client, id }: { client: ApiClient; id: string }) {
   const [state, reload] = useView(() => loadFolderView(client, id), id);
@@ -34,6 +35,7 @@ export function FolderView({ client, id }: { client: ApiClient; id: string }) {
         </ol>
       </nav>
       <h1>{folder.name}</h1>
+      <FolderActions client={client} spaceId={space.id} folders={folders} folder={folder} onReload={reload} />
       <EntryList
         folders={childFolders(folders, folder.id)}
         pages={pages.filter((page) => page.folder_id === folder.id)}
