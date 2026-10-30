@@ -1,3 +1,4 @@
+/** @jsxImportSource hono/jsx */
 import { Hono, type Context } from "hono";
 import { clock } from "../clock";
 import type { AppEnv } from "../env";

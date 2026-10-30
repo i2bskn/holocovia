@@ -7,10 +7,18 @@ const HASH_BYTES = 32;
 
 const encoder = new TextEncoder();
 
+// Workers-specific API, declared here as in @cloudflare/workers-types so that the client tsconfig,
+// which also loads the DOM lib through AppType, accepts it.
+declare global {
+  interface SubtleCrypto {
+    timingSafeEqual(a: ArrayBuffer | ArrayBufferView, b: ArrayBuffer | ArrayBufferView): boolean;
+  }
+}
+
 // Used when the user does not exist or has no password, so that the response time does not reveal it.
 const DUMMY_HASH = `${ALGORITHM}$${PBKDF2_ITERATIONS}$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA`;
 
-async function derive(password: string, salt: Uint8Array, iterations: number): Promise<ArrayBuffer> {
+async function derive(password: string, salt: Uint8Array<ArrayBuffer>, iterations: number): Promise<ArrayBuffer> {
   const key = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
   return crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations }, key, HASH_BYTES * 8);
 }

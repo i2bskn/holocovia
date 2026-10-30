@@ -1,3 +1,4 @@
+/** @jsxImportSource hono/jsx */
 import { Layout } from "./layout";
 
 export function SetupPage(props: { email?: string; name?: string; errors?: string[] }) {

@@ -1,0 +1,88 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  line-height: 1.6;
+  color: #222;
+  background: #fff;
+  overflow-wrap: anywhere;
+}
+
+button {
+  font: inherit;
+  padding: 0.25rem 0.75rem;
+  cursor: pointer;
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #ddd;
+}
+
+.brand {
+  font-weight: bold;
+}
+
+.account {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  min-width: 0;
+}
+
+.account form {
+  margin: 0;
+}
+
+.role {
+  margin-left: 0.5rem;
+  padding: 0 0.4rem;
+  font-size: 0.8rem;
+  border: 1px solid #999;
+  border-radius: 0.25rem;
+}
+
+.main {
+  max-width: 48rem;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.main h1 {
+  font-size: 1.25rem;
+}
+
+.status {
+  padding: 1rem;
+}
+
+.spaces {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.spaces li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 0.75rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #eee;
+}
+
+.space-kind {
+  font-size: 0.8rem;
+  color: #666;
+}

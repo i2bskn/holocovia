@@ -275,11 +275,4 @@ describe("GET /auth/login", () => {
     expect(res.status).toBe(200);
     expectCleared(res);
   });
-
-  it("shows the home page when signed in", async () => {
-    const cookies = await login(alice.email);
-    const res = await send("/", { cookies });
-    expect(res.status).toBe(200);
-    expect(await res.text()).toContain("alice@example.com");
-  });
 });

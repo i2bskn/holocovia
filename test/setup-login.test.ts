@@ -172,9 +172,8 @@ describe("password login", () => {
 });
 
 describe("home", () => {
-  it("redirects to login when signed out", async () => {
-    const res = await send("/");
-    expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe("/auth/login?next=/");
+  // The static assets serve / (the SPA) in front of the Worker, so the Worker has no route for it.
+  it("returns 404 for / in the Worker", async () => {
+    expect((await send("/")).status).toBe(404);
   });
 });

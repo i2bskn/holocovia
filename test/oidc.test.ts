@@ -404,8 +404,9 @@ describe("OIDC flow with a mocked IdP", () => {
     const res = await send("https://holocovia.workers.dev/auth/login?next=/x", { env: oidcEnv });
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toBe(`${OIDC_ORIGIN}/auth/login?next=/x`);
-    const home = await send("https://holocovia.workers.dev/", { env: oidcEnv });
-    expect(home.headers.get("Location")).toBe(`${OIDC_ORIGIN}/`);
+    const setup = await send("https://holocovia.workers.dev/auth/setup", { env: oidcEnv });
+    expect(setup.status).toBe(302);
+    expect(setup.headers.get("Location")).toBe(`${OIDC_ORIGIN}/auth/setup`);
     const post = await send("https://holocovia.workers.dev/auth/logout", { method: "POST", env: oidcEnv });
     expect(post.status).toBe(404);
   });

@@ -777,15 +777,15 @@ describe("origins and configuration", () => {
     const metadata = await send(`${OIDC_ORIGIN}/.well-known/oauth-authorization-server`, { env: oidcEnv });
     expect(metadata.status).toBe(200);
     // Pages still go through unifyHost.
-    const page = await send("https://other.example.com/", { env: oidcEnv });
+    const page = await send("https://other.example.com/auth/setup", { env: oidcEnv });
     expect(page.status).toBe(302);
-    expect(page.headers.get("Location")).toBe(`${OIDC_ORIGIN}/`);
+    expect(page.headers.get("Location")).toBe(`${OIDC_ORIGIN}/auth/setup`);
   });
 
   it("serves pages but not OAuth on a plain http host that is not loopback", async () => {
-    const home = await send("http://wiki.example.com/", { cookies: memberCookies });
-    expect(home.status).toBe(200);
-    expect(await home.text()).toContain(member.email);
+    const me = await send("http://wiki.example.com/api/v1/me", { cookies: memberCookies });
+    expect(me.status).toBe(200);
+    expect(await me.text()).toContain(member.email);
     expect((await send("http://wiki.example.com/mcp", { json: {} })).status).toBe(404);
     expect((await send("http://wiki.example.com/authorize")).status).toBe(404);
   });

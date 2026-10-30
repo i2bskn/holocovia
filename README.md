@@ -2,7 +2,7 @@
 
 Holocoviaは、MCPで読み書きでき、Webでも閲覧できるチーム向けのwiki兼ポータルです。Cloudflare Workers、D1、R2の上で動き、Cloudflareを使っている小さなチームが自分たちのアカウントで動かすことを想定しています。
 
-現在実装しているのは、認証（パスワード認証とOIDC認証）、スペースとページのAPI、MCPでの読み書きです。Web画面とポータルは**まだ実装していません**。
+現在実装しているのは、認証（パスワード認証とOIDC認証）、スペースとページのAPI、MCPでの読み書き、Web画面の土台（ログイン中のユーザーとスペースの一覧の表示）です。ページを読む・書くWeb画面とポータルは**まだ実装していません**。
 
 ## デプロイする
 
@@ -13,6 +13,8 @@ Holocoviaは、MCPで読み書きでき、Webでも閲覧できるチーム向�
 1. このリポジトリが、あなたのGitHubに新しいリポジトリとしてコピーされます（forkではありません）。
 2. あなたのCloudflareアカウントにD1データベースと、MCPの接続情報を保存するKVネームスペースが1つずつ作られ、Workerに紐付きます。
 3. Workers Buildsが設定され、マイグレーションの適用とデプロイが行われます。以降はコピーされたリポジトリへpushするたびにデプロイされます。
+
+Web画面（React）は`wrangler.jsonc`の`build.command`により`wrangler deploy`の前に自動でビルドされるため、Workers Buildsのビルドコマンドの設定は要りません。
 
 セットアップ画面では`JWT_SECRET`を入力します。`openssl rand -hex 32`で生成した値を使ってください。変更すると全員がログアウトします。
 
@@ -100,11 +102,14 @@ pnpm db:migrate:local
 pnpm dev
 ```
 
+`pnpm dev`はWeb画面（`client/`）をビルドしてから`wrangler dev`を起動します。`client/`のファイルを変えると自動で再ビルドされますが、HMRは無いのでブラウザの再読み込みが必要です。
+
 CookieにSecure属性と`__Host-`接頭辞を使っているため、`http://localhost`ではSafariでログインできません。ChromeかFirefoxを使ってください。
 
 | コマンド | 内容 |
 | --- | --- |
 | `pnpm test` | テスト |
-| `pnpm typecheck` | 型チェック |
+| `pnpm typecheck` | 型チェック（サーバーとWeb画面） |
+| `pnpm build:client` | Web画面を`dist/client`にビルドする |
 | `pnpm db:generate` | スキーマからマイグレーションを作る |
 | `pnpm run deploy` | 本番のD1にマイグレーションを適用してデプロイする（`pnpm deploy`はpnpm自体のコマンドなので`run`を付けてください） |

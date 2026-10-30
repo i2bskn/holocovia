@@ -1,3 +1,4 @@
+/** @jsxImportSource hono/jsx */
 import { Hono, type Context } from "hono";
 import { AuthorizationError, CimdFetchError } from "@cloudflare/workers-oauth-provider";
 import type { AppEnv } from "../env";

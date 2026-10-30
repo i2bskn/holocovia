@@ -11,7 +11,7 @@ export function base64UrlEncode(bytes: Uint8Array): string {
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-export function base64UrlDecode(text: string): Uint8Array | null {
+export function base64UrlDecode(text: string): Uint8Array<ArrayBuffer> | null {
   if (!/^[A-Za-z0-9_-]*$/.test(text) || text.length % 4 === 1) return null;
   try {
     const binary = atob(text.replace(/-/g, "+").replace(/_/g, "/"));

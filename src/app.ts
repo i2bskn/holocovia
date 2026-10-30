@@ -11,7 +11,6 @@ import {
 } from "./auth/middleware";
 import auth from "./routes/auth";
 import authorize from "./routes/authorize";
-import home from "./routes/home";
 import me from "./routes/me";
 import pagesApi from "./routes/pages";
 import spacesApi from "./routes/spaces";
@@ -28,7 +27,9 @@ app.use("/auth/*", sameOrigin);
 app.use("/api/v1/*", sameOrigin);
 app.use("/authorize", sameOrigin);
 
-app.route("/", home);
+// "/" and other paths not listed in run_worker_first in wrangler.jsonc are served by the static
+// assets (the SPA) and never reach the Worker. When adding a top-level path here, add it to
+// run_worker_first as well.
 app.route("/auth", auth);
 app.route("/authorize", authorize);
 const apiRoutes = app

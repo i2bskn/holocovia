@@ -49,7 +49,7 @@ export const loadConfigMiddleware: MiddlewareHandler<AppEnv> = async (c, next) =
 };
 
 function isPagePath(path: string): boolean {
-  return path === "/" || path === "/auth" || path.startsWith("/auth/") || path === "/authorize";
+  return path === "/auth" || path.startsWith("/auth/") || path === "/authorize";
 }
 
 export const securityHeaders: MiddlewareHandler<AppEnv> = async (c, next) => {
@@ -64,7 +64,7 @@ export const securityHeaders: MiddlewareHandler<AppEnv> = async (c, next) => {
   }
 };
 
-// 2. In oidc mode, keeps /auth/* and / on APP_ORIGIN so that redirect_uri and cookies use one host.
+// 2. In oidc mode, keeps /auth and /auth/* on APP_ORIGIN so that redirect_uri and cookies use one host.
 export const unifyHost: MiddlewareHandler<AppEnv> = async (c, next) => {
   const { oidc } = c.get("config");
   if (!oidc || !isPagePath(c.req.path)) return next();

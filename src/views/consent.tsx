@@ -1,3 +1,4 @@
+/** @jsxImportSource hono/jsx */
 import type { ConsentDescription } from "@cloudflare/workers-oauth-provider";
 import { Layout } from "./layout";
 

@@ -5,6 +5,7 @@ import { getOAuthProvider } from "./mcp/provider";
 export type { AppType } from "./app";
 
 // Paths served by OAuthProvider or the authorization page. They are never forwarded to another host.
+// When adding a top-level path here, add it to run_worker_first in wrangler.jsonc as well.
 function isOAuthPath(path: string): boolean {
   return (
     path === "/mcp" ||
