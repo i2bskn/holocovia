@@ -2,12 +2,12 @@ import { Hono } from "hono";
 import { and, asc, eq, ne, sql } from "drizzle-orm";
 import type { CreateSpaceInput, CreateSpaceRequest, PageList, SpaceList, UpdateSpaceRequest } from "../api/types";
 import { clock } from "../clock";
-import { isForeignKeyViolation } from "../db/errors";
 import { pages, spaces } from "../db/schema";
 import type { AppEnv } from "../env";
 import { apiError, requireAdmin, requireUser } from "../auth/middleware";
 import { isUniqueViolation } from "../auth/users";
 import { listPageSummaries } from "../pages/queries";
+import { createPage } from "../pages/service";
 import { accessibleSpacesWhere, canAccessSpace } from "../spaces/access";
 import { findSpaceById } from "../spaces/queries";
 import { jsonBody, toApiPage, toApiPageSummary, toApiSpace } from "./api";
@@ -146,36 +146,9 @@ const spacesApi = new Hono<AppEnv>()
     return c.json(body, 200);
   })
   .post("/:id/pages", requireUser, createPageBody, async (c) => {
-    const input = c.req.valid("json");
-    const db = c.get("db");
-    const user = c.get("user");
-    const space = await findSpaceById(db, c.req.param("id"));
-    if (!space || !canAccessSpace(user, space)) return apiError(c, 404, "not_found", spaceNotFound);
-
-    const now = clock.now();
-    let created;
-    try {
-      created = await db
-        .insert(pages)
-        .values({
-          id: crypto.randomUUID(),
-          spaceId: space.id,
-          title: input.title,
-          body: input.body,
-          version: 1,
-          createdBy: user.id,
-          updatedBy: user.id,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .returning()
-        .get();
-    } catch (error) {
-      // The space was deleted after the check above (or the user, whose session ends with it).
-      if (isForeignKeyViolation(error)) return apiError(c, 404, "not_found", spaceNotFound);
-      throw error;
-    }
-    return c.json(toApiPage(created), 201);
+    const result = await createPage(c.get("db"), c.get("user"), c.req.param("id"), c.req.valid("json"));
+    if (!result.ok) return apiError(c, 404, "not_found", spaceNotFound);
+    return c.json(toApiPage(result.page), 201);
   });
 
 export default spacesApi;

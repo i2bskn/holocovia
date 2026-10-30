@@ -3,15 +3,16 @@ import { createExecutionContext } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Page, PageList, Space, SpaceList } from "../src/api/types";
+import type { Page, PageList, PageSummary, Space, SpaceList } from "../src/api/types";
 import { safeNext } from "../src/auth/redirect";
 import { issueSession } from "../src/auth/sessions";
 import { base64UrlEncode, signAccessToken } from "../src/auth/tokens";
-import { spaces, users, type SpaceRow, type UserRow } from "../src/db/schema";
+import { pages, spaces, users, type PageRow, type SpaceRow, type UserRow } from "../src/db/schema";
 import type { Bindings } from "../src/env";
 import { mcpHandler } from "../src/mcp/handler";
 import { buildOAuthProviderOptions } from "../src/mcp/provider";
 import {
+  countPages,
   createUser,
   db,
   insertPage,
@@ -345,7 +346,7 @@ describe("POST /authorize", () => {
 });
 
 describe("MCP", () => {
-  it("initializes and lists the three tools", async () => {
+  it("initializes and lists the five tools with their annotations", async () => {
     const { access_token } = await authorizeClient(memberCookies);
     const init = await mcpRequest(access_token, "initialize", {
       protocolVersion: "2025-06-18",
@@ -358,9 +359,26 @@ describe("MCP", () => {
 
     const list = await mcpRequest(access_token, "tools/list");
     expect(list.status).toBe(200);
-    const listBody = (await list.json()) as { result: { tools: { name: string; outputSchema?: unknown }[] } };
-    expect(listBody.result.tools.map((t) => t.name).sort()).toEqual(["get_page", "list_pages", "list_spaces"]);
+    const listBody = (await list.json()) as {
+      result: { tools: { name: string; outputSchema?: unknown; annotations?: unknown }[] };
+    };
+    expect(listBody.result.tools.map((t) => t.name).sort()).toEqual([
+      "create_page",
+      "get_page",
+      "list_pages",
+      "list_spaces",
+      "update_page",
+    ]);
     expect(listBody.result.tools.every((t) => t.outputSchema === undefined)).toBe(true);
+    const annotations = Object.fromEntries(listBody.result.tools.map((t) => [t.name, t.annotations]));
+    const readOnly = { readOnlyHint: true, openWorldHint: false };
+    expect(annotations).toEqual({
+      list_spaces: readOnly,
+      list_pages: readOnly,
+      get_page: readOnly,
+      create_page: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+      update_page: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    });
   });
 
   it("returns the same spaces as the REST API for a member and an admin", async () => {
@@ -479,6 +497,199 @@ describe("MCP", () => {
     expectToolError(result, "サーバーでエラーが発生しました");
     expect(JSON.stringify(result)).not.toContain("pages");
     expect(errorLog).toHaveBeenCalledWith("mcp tool failed", expect.objectContaining({ tool: "get_page" }));
+  });
+});
+
+describe("MCP write tools", () => {
+  const BODY_MAX_BYTES = 524_288;
+  const invalidTitle = "タイトルは 1 文字以上 200 文字以下で、改行などの制御文字を含まない文字列にしてください";
+  const invalidPageBody = "本文は 512KB 以下で、NUL 文字を含まない文字列にしてください";
+  const invalidVersion = "version は 1 以上の整数で指定してください";
+  const emptyUpdate = "title か body のどちらかを指定してください";
+  const pageNotFound = "ページが見つかりません";
+  const spaceNotFound = "スペースが見つかりません";
+
+  let token: string;
+
+  beforeEach(async () => {
+    token = (await authorizeClient(memberCookies)).access_token;
+  });
+
+  async function readPage(id: string): Promise<PageRow | undefined> {
+    return db.query.pages.findFirst({ where: eq(pages.id, id) });
+  }
+
+  describe("create_page", () => {
+    it("creates a page in an everyone space and returns it without the body", async () => {
+      const everyone = await insertSpace("everyone", "Everyone");
+      const result = toolJson<PageSummary>(
+        await callTool(token, "create_page", { space_id: everyone.id, title: "  Hello  ", body: "# Hi\n" }),
+      );
+      expect(result).not.toHaveProperty("body");
+      expect(result).toMatchObject({
+        space_id: everyone.id,
+        title: "Hello",
+        version: 1,
+        created_by: member.id,
+        updated_by: member.id,
+      });
+      const res = await send(`/api/v1/pages/${result.id}`, { cookies: memberCookies });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ...result, body: "# Hi\n" });
+    });
+
+    it("creates a page in the user's personal space", async () => {
+      const personal = await personalSpaceOf(member);
+      const result = toolJson<PageSummary>(
+        await callTool(token, "create_page", { space_id: personal.id, title: "Mine", body: "" }),
+      );
+      expect(result).toMatchObject({ space_id: personal.id, title: "Mine", version: 1 });
+      expect(await countPages()).toBe(1);
+    });
+
+    it("reports inaccessible and unknown spaces as missing", async () => {
+      const adminSpace = await insertSpace("admin", "Admins");
+      for (const spaceId of [adminSpace.id, (await personalSpaceOf(admin)).id, "missing"]) {
+        const result = await callTool(token, "create_page", { space_id: spaceId, title: "T", body: "" });
+        expectToolError(result, spaceNotFound);
+      }
+      expect(await countPages()).toBe(0);
+    });
+
+    it("rejects an invalid title", async () => {
+      const everyone = await insertSpace("everyone", "Everyone");
+      expectToolError(
+        await callTool(token, "create_page", { space_id: everyone.id, title: "   ", body: "" }),
+        invalidTitle,
+      );
+      expect(await countPages()).toBe(0);
+    });
+
+    it("accepts a body of exactly 512KB and rejects one byte more", async () => {
+      const everyone = await insertSpace("everyone", "Everyone");
+      const tooLong = "a".repeat(BODY_MAX_BYTES - 2) + "あ";
+      expect(new TextEncoder().encode(tooLong).byteLength).toBe(BODY_MAX_BYTES + 1);
+      expectToolError(
+        await callTool(token, "create_page", { space_id: everyone.id, title: "T", body: tooLong }),
+        invalidPageBody,
+      );
+      expect(await countPages()).toBe(0);
+
+      const exact = "a".repeat(BODY_MAX_BYTES - 3) + "あ";
+      expect(new TextEncoder().encode(exact).byteLength).toBe(BODY_MAX_BYTES);
+      const result = toolJson<PageSummary>(
+        await callTool(token, "create_page", { space_id: everyone.id, title: "T", body: exact }),
+      );
+      expect((await readPage(result.id))?.body).toBe(exact);
+    });
+
+    it("reports unexpected errors with a fixed message", async () => {
+      const everyone = await insertSpace("everyone", "Everyone");
+      const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+      await env.DB.exec("ALTER TABLE pages RENAME TO pages_unavailable");
+      let result: ToolResult;
+      try {
+        result = await callTool(token, "create_page", { space_id: everyone.id, title: "T", body: "" });
+      } finally {
+        await env.DB.exec("ALTER TABLE pages_unavailable RENAME TO pages");
+      }
+      expectToolError(result, "サーバーでエラーが発生しました");
+      expect(JSON.stringify(result)).not.toContain("pages");
+      expect(errorLog).toHaveBeenCalledWith("mcp tool failed", expect.objectContaining({ tool: "create_page" }));
+      expect(await countPages()).toBe(0);
+    });
+  });
+
+  describe("update_page", () => {
+    let everyone: SpaceRow;
+    let page: PageRow;
+
+    beforeEach(async () => {
+      everyone = await insertSpace("everyone", "Everyone");
+      page = await insertPage({ spaceId: everyone.id, title: "Title", body: "Body", createdBy: admin.id });
+    });
+
+    it("updates only the title and returns the page without the body", async () => {
+      const result = toolJson<PageSummary>(
+        await callTool(token, "update_page", { page_id: page.id, version: 1, title: "  New  " }),
+      );
+      expect(result).not.toHaveProperty("body");
+      expect(result).toMatchObject({
+        id: page.id,
+        title: "New",
+        version: 2,
+        created_by: admin.id,
+        updated_by: member.id,
+      });
+      expect(await readPage(page.id)).toMatchObject({ title: "New", body: "Body", version: 2, updatedBy: member.id });
+    });
+
+    it("updates only the body", async () => {
+      const result = toolJson<PageSummary>(
+        await callTool(token, "update_page", { page_id: page.id, version: 1, body: "New body" }),
+      );
+      expect(result.version).toBe(2);
+      expect(await readPage(page.id)).toMatchObject({ title: "Title", body: "New body", version: 2 });
+    });
+
+    it("reports a stale version with guidance and changes nothing", async () => {
+      const first = await callTool(token, "update_page", { page_id: page.id, version: 1, body: "first" });
+      expect(toolJson<PageSummary>(first).version).toBe(2);
+      const before = await readPage(page.id);
+      expectToolError(
+        await callTool(token, "update_page", { page_id: page.id, version: 1, body: "second" }),
+        "ページが他の人に更新されています。最新の内容を取得してからやり直してください。get_page で最新の version と本文を取得し、変更を反映し直してから update_page を呼んでください",
+      );
+      expect(await readPage(page.id)).toEqual(before);
+    });
+
+    it("requires a title or a body", async () => {
+      expectToolError(await callTool(token, "update_page", { page_id: page.id, version: 1 }), emptyUpdate);
+      expect(await readPage(page.id)).toEqual(page);
+    });
+
+    it.each([0, -1, 1.5, 2 ** 53])("rejects version %s", async (version) => {
+      expectToolError(await callTool(token, "update_page", { page_id: page.id, version, title: "T" }), invalidVersion);
+      expect(await readPage(page.id)).toEqual(page);
+    });
+
+    it("checks the version before the empty update", async () => {
+      expectToolError(await callTool(token, "update_page", { page_id: page.id, version: 0 }), invalidVersion);
+    });
+
+    it("rejects an invalid title", async () => {
+      expectToolError(
+        await callTool(token, "update_page", { page_id: page.id, version: 1, title: "   " }),
+        invalidTitle,
+      );
+      expect(await readPage(page.id)).toEqual(page);
+    });
+
+    it("rejects a body over 512KB", async () => {
+      const tooLong = "a".repeat(BODY_MAX_BYTES - 2) + "あ";
+      expectToolError(
+        await callTool(token, "update_page", { page_id: page.id, version: 1, body: tooLong }),
+        invalidPageBody,
+      );
+      expect(await readPage(page.id)).toEqual(page);
+    });
+
+    it("reports pages in inaccessible spaces and unknown pages as missing", async () => {
+      const adminSpace = await insertSpace("admin", "Admins");
+      const adminPage = await insertPage({ spaceId: adminSpace.id, title: "Secret", body: "Secret" });
+      const othersPage = await insertPage({ spaceId: (await personalSpaceOf(admin)).id, title: "Own", body: "Own" });
+      for (const target of [adminPage, othersPage]) {
+        expectToolError(
+          await callTool(token, "update_page", { page_id: target.id, version: 1, body: "changed" }),
+          pageNotFound,
+        );
+        expect(await readPage(target.id)).toEqual(target);
+      }
+      expectToolError(
+        await callTool(token, "update_page", { page_id: "missing", version: 1, body: "x" }),
+        pageNotFound,
+      );
+    });
   });
 });
 

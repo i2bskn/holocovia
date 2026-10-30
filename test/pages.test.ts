@@ -450,3 +450,40 @@ describe("isForeignKeyViolation", () => {
     expect(isForeignKeyViolation(error)).toBe(false);
   });
 });
+
+describe("error messages", () => {
+  async function errorBody(res: Response): Promise<{ code: string; message: string }> {
+    return ((await res.json()) as { error: { code: string; message: string } }).error;
+  }
+
+  it("returns the message for each error code", async () => {
+    const page = await insertPage({ spaceId: everyone.id, title: "Title", body: "Body" });
+    const cases: [Promise<Response>, string, string][] = [
+      [
+        patchPage(page.id, adminCookies, { version: 1, title: "   " }),
+        "invalid_title",
+        "タイトルは 1 文字以上 200 文字以下で、改行などの制御文字を含まない文字列にしてください",
+      ],
+      [
+        patchPage(page.id, adminCookies, { version: 1, body: "a\u0000b" }),
+        "invalid_page_body",
+        "本文は 512KB 以下で、NUL 文字を含まない文字列にしてください",
+      ],
+      [
+        patchPage(page.id, adminCookies, { version: 0, title: "T" }),
+        "invalid_version",
+        "version は 1 以上の整数で指定してください",
+      ],
+      [patchPage(page.id, adminCookies, { version: 1 }), "empty_update", "title か body のどちらかを指定してください"],
+      [
+        patchPage(page.id, adminCookies, { version: 5, title: "T" }),
+        "version_conflict",
+        "ページが他の人に更新されています。最新の内容を取得してからやり直してください",
+      ],
+      [patchPage("nope", adminCookies, { version: 1, title: "T" }), "not_found", "ページが見つかりません"],
+    ];
+    for (const [request, code, message] of cases) {
+      expect(await errorBody(await request)).toEqual({ code, message });
+    }
+  });
+});
