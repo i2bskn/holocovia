@@ -11,6 +11,7 @@ import {
 } from "./auth/middleware";
 import auth from "./routes/auth";
 import authorize from "./routes/authorize";
+import foldersApi from "./routes/folders";
 import me from "./routes/me";
 import pagesApi from "./routes/pages";
 import searchApi from "./routes/search";
@@ -38,6 +39,7 @@ const apiRoutes = app
   .route("/api/v1/users", usersApi)
   .route("/api/v1/spaces", spacesApi)
   .route("/api/v1/pages", pagesApi)
+  .route("/api/v1/folders", foldersApi)
   .route("/api/v1/search", searchApi);
 
 // Types for hc<AppType>(). Only /api/v1/* is included.

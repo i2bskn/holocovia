@@ -1,14 +1,20 @@
 import { hc, type InferRequestType, type InferResponseType } from "hono/client";
 import { describe, expectTypeOf, it } from "vitest";
 import type {
+  CreateFolderRequest,
   CreatePageRequest,
   CreateSpaceRequest,
   CreateUserRequest,
+  Folder,
+  FolderList,
   Page,
   PageList,
+  PageSummary,
+  SearchHit,
   SearchResult,
   Space,
   SpaceList,
+  UpdateFolderRequest,
   UpdatePageRequest,
   User,
   UserList,
@@ -23,6 +29,8 @@ type CreateUserJson = InferRequestType<typeof client.api.v1.users.$post>["json"]
 type CreateSpaceJson = InferRequestType<typeof client.api.v1.spaces.$post>["json"];
 type CreatePageJson = InferRequestType<(typeof client.api.v1.spaces)[":id"]["pages"]["$post"]>["json"];
 type UpdatePageJson = InferRequestType<(typeof client.api.v1.pages)[":id"]["$patch"]>["json"];
+type CreateFolderJson = InferRequestType<(typeof client.api.v1.spaces)[":id"]["folders"]["$post"]>["json"];
+type UpdateFolderJson = InferRequestType<(typeof client.api.v1.folders)[":id"]["$patch"]>["json"];
 type SearchQuery = InferRequestType<typeof client.api.v1.search.$get>["query"];
 
 describe("AppType", () => {
@@ -54,6 +62,26 @@ describe("AppType", () => {
     void withoutVersion;
   });
 
+  it("types the request bodies of folder creation and update", () => {
+    expectTypeOf<CreateFolderJson>().toEqualTypeOf<CreateFolderRequest>();
+    expectTypeOf<UpdateFolderJson>().toEqualTypeOf<UpdateFolderRequest>();
+    const topLevel: CreateFolderJson = { name: "Docs", parent_id: null };
+    // @ts-expect-error name is required
+    const withoutName: CreateFolderJson = { parent_id: null };
+    const moveToTop: UpdateFolderJson = { parent_id: null };
+    void topLevel;
+    void withoutName;
+    void moveToTop;
+  });
+
+  it("types folder_id on pages and search hits", () => {
+    expectTypeOf<PageSummary["folder_id"]>().toEqualTypeOf<string | null>();
+    expectTypeOf<Page["folder_id"]>().toEqualTypeOf<string | null>();
+    expectTypeOf<SearchHit["folder_id"]>().toEqualTypeOf<string | null>();
+    const moveToTop: UpdatePageJson = { version: 1, folder_id: null };
+    void moveToTop;
+  });
+
   it("types the query of GET /api/v1/search", () => {
     expectTypeOf<SearchQuery["q"]>().toEqualTypeOf<string>();
     const withSpace: SearchQuery = { q: "plan", space_id: "s1" };
@@ -74,5 +102,9 @@ describe("AppType", () => {
     expectTypeOf<InferResponseType<(typeof client.api.v1.pages)[":id"]["$get"], 200>>().toEqualTypeOf<Page>();
     expectTypeOf<InferResponseType<(typeof client.api.v1.pages)[":id"]["$patch"], 200>>().toEqualTypeOf<Page>();
     expectTypeOf<InferResponseType<typeof client.api.v1.search.$get, 200>>().toEqualTypeOf<SearchResult>();
+    expectTypeOf<InferResponseType<(typeof client.api.v1.spaces)[":id"]["folders"]["$get"], 200>>().toEqualTypeOf<FolderList>();
+    expectTypeOf<InferResponseType<(typeof client.api.v1.spaces)[":id"]["folders"]["$post"], 201>>().toEqualTypeOf<Folder>();
+    expectTypeOf<InferResponseType<(typeof client.api.v1.folders)[":id"]["$get"], 200>>().toEqualTypeOf<Folder>();
+    expectTypeOf<InferResponseType<(typeof client.api.v1.folders)[":id"]["$patch"], 200>>().toEqualTypeOf<Folder>();
   });
 });

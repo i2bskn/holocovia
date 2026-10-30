@@ -1,6 +1,6 @@
 import type { Context, MiddlewareHandler } from "hono";
-import type { Page, PageSummary, SearchHit, Space, User } from "../api/types";
-import type { PageRow, SpaceRow, UserRow } from "../db/schema";
+import type { Folder, Page, PageSummary, SearchHit, Space, User } from "../api/types";
+import type { FolderRow, PageRow, SpaceRow, UserRow } from "../db/schema";
 import type { SearchHitRow } from "../pages/search";
 import type { AppEnv } from "../env";
 import { apiError } from "../auth/middleware";
@@ -27,11 +27,25 @@ export function toApiSpace(space: SpaceRow): Space {
   };
 }
 
+export function toApiFolder(folder: FolderRow): Folder {
+  return {
+    id: folder.id,
+    space_id: folder.spaceId,
+    parent_id: folder.parentId,
+    name: folder.name,
+    created_by: folder.createdBy,
+    updated_by: folder.updatedBy,
+    created_at: folder.createdAt,
+    updated_at: folder.updatedAt,
+  };
+}
+
 // Takes a row without the body so that page lists never need to read bodies from the DB.
 export function toApiPageSummary(page: Omit<PageRow, "body">): PageSummary {
   return {
     id: page.id,
     space_id: page.spaceId,
+    folder_id: page.folderId,
     title: page.title,
     version: page.version,
     created_by: page.createdBy,

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Page, PageSummary, SearchHit, Space, User } from "../../src/api/types";
+import type { Folder, Page, PageSummary, SearchHit, Space, User } from "../../src/api/types";
 import {
   LoginRequiredError,
   type createApiClient,
@@ -90,34 +90,76 @@ export async function loadHomeView(client: ApiClient): Promise<Loaded<HomeData>>
   return { kind: "ready", data: { spaces: list.value.spaces } };
 }
 
-export type SpaceData = { space: Space; pages: PageSummary[] };
+// folders are all the folders of the space, as a flat list.
+export type SpaceData = { space: Space; folders: Folder[]; pages: PageSummary[] };
 
 export async function loadSpaceView(client: ApiClient, id: string): Promise<Loaded<SpaceData>> {
   if (!isValidId(id)) return { kind: "notFound" };
   const param = { param: { id } };
-  const [space, pages] = await Promise.all([
+  const [space, folders, pages] = await Promise.all([
     request(() => client.api.v1.spaces[":id"].$get(param)),
+    request(() => client.api.v1.spaces[":id"].folders.$get(param)),
     request(() => client.api.v1.spaces[":id"].pages.$get(param)),
   ]);
-  if (space.kind === "ok" && pages.kind === "ok") {
-    return { kind: "ready", data: { space: space.value, pages: pages.value.pages } };
+  if (space.kind === "ok" && folders.kind === "ok" && pages.kind === "ok") {
+    return {
+      kind: "ready",
+      data: { space: space.value, folders: folders.value.folders, pages: pages.value.pages },
+    };
   }
-  return failure([space, pages]);
+  return failure([space, folders, pages]);
 }
 
-// space is null when it could not be loaded; the page is shown anyway.
-export type PageData = { page: Page; space: Space | null };
+// folders and pages are all those of the space; the screen picks the ones in the folder.
+export type FolderData = { folder: Folder; space: Space; folders: Folder[]; pages: PageSummary[] };
+
+export async function loadFolderView(client: ApiClient, id: string): Promise<Loaded<FolderData>> {
+  if (!isValidId(id)) return { kind: "notFound" };
+  const folder = await request(() => client.api.v1.folders[":id"].$get({ param: { id } }));
+  if (folder.kind !== "ok") return failure([folder]);
+  // The rest needs space_id from the folder, so it is loaded after it.
+  const spaceId = folder.value.space_id;
+  if (!isValidId(spaceId)) return { kind: "error", message: unexpectedResponseMessage(200) };
+  const param = { param: { id: spaceId } };
+  const [space, folders, pages] = await Promise.all([
+    request(() => client.api.v1.spaces[":id"].$get(param)),
+    request(() => client.api.v1.spaces[":id"].folders.$get(param)),
+    request(() => client.api.v1.spaces[":id"].pages.$get(param)),
+  ]);
+  if (space.kind === "ok" && folders.kind === "ok" && pages.kind === "ok") {
+    return {
+      kind: "ready",
+      data: { folder: folder.value, space: space.value, folders: folders.value.folders, pages: pages.value.pages },
+    };
+  }
+  return failure([space, folders, pages]);
+}
+
+// space and folders are null when they could not be loaded; the page is shown anyway.
+export type PageData = { page: Page; space: Space | null; folders: Folder[] | null };
 
 export async function loadPageView(client: ApiClient, id: string): Promise<Loaded<PageData>> {
   if (!isValidId(id)) return { kind: "notFound" };
   const page = await request(() => client.api.v1.pages[":id"].$get({ param: { id } }));
   if (page.kind !== "ok") return failure([page]);
-  // The space needs space_id from the page, so it is loaded after it.
+  // The space and its folders need space_id from the page, so they are loaded after it.
   const spaceId = page.value.space_id;
-  if (!isValidId(spaceId)) return { kind: "ready", data: { page: page.value, space: null } };
-  const space = await request(() => client.api.v1.spaces[":id"].$get({ param: { id: spaceId } }));
+  if (!isValidId(spaceId)) return { kind: "ready", data: { page: page.value, space: null, folders: null } };
+  const param = { param: { id: spaceId } };
+  const [space, folders] = await Promise.all([
+    request(() => client.api.v1.spaces[":id"].$get(param)),
+    request(() => client.api.v1.spaces[":id"].folders.$get(param)),
+  ]);
   if (space.kind === "redirecting") return space;
-  return { kind: "ready", data: { page: page.value, space: space.kind === "ok" ? space.value : null } };
+  if (folders.kind === "redirecting") return folders;
+  return {
+    kind: "ready",
+    data: {
+      page: page.value,
+      space: space.kind === "ok" ? space.value : null,
+      folders: folders.kind === "ok" ? folders.value.folders : null,
+    },
+  };
 }
 
 // query is trimmed. spaceNames maps space_id to the display name; it is empty when the spaces

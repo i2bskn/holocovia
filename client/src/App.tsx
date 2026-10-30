@@ -6,6 +6,7 @@ import { loadMe, useView } from "./load";
 import { type Route, matchRoute, navigate, usePath } from "./router";
 import { LoadError, NotFound, useDocumentTitle } from "./views/common";
 import { ErrorBoundary } from "./views/ErrorBoundary";
+import { FolderView } from "./views/FolderView";
 import { HomeView } from "./views/HomeView";
 import { PageView } from "./views/PageView";
 import { SearchView } from "./views/SearchView";
@@ -54,6 +55,8 @@ function Screen({ route }: { route: Route }) {
       return <HomeView client={client} />;
     case "space":
       return <SpaceView client={client} id={route.id} />;
+    case "folder":
+      return <FolderView client={client} id={route.id} />;
     case "page":
       return <PageView client={client} id={route.id} origin={location.origin} />;
     case "search":

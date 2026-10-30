@@ -3,6 +3,7 @@ import { useSyncExternalStore } from "react";
 export type Route =
   | { name: "home" }
   | { name: "space"; id: string }
+  | { name: "folder"; id: string }
   | { name: "page"; id: string }
   | { name: "search"; query: string }
   | { name: "notFound" };
@@ -16,7 +17,7 @@ export function isValidId(id: string): boolean {
   return ID_PATTERN.test(id);
 }
 
-const ROUTE_PATTERN = /^\/(spaces|pages)\/([^/]+)$/;
+const ROUTE_PATTERN = /^\/(spaces|folders|pages)\/([^/]+)$/;
 
 // path is the pathname followed by the search part, if any. Only /search reads the search part.
 export function matchRoute(path: string): Route {
@@ -30,7 +31,14 @@ export function matchRoute(path: string): Route {
   if (!match) return { name: "notFound" };
   const [, kind, id] = match;
   if (id === undefined || !isValidId(id)) return { name: "notFound" };
-  return kind === "spaces" ? { name: "space", id } : { name: "page", id };
+  switch (kind) {
+    case "spaces":
+      return { name: "space", id };
+    case "folders":
+      return { name: "folder", id };
+    default:
+      return { name: "page", id };
+  }
 }
 
 // Notified by navigate(); popstate covers the back and forward buttons.

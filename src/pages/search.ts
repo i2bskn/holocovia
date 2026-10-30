@@ -46,6 +46,7 @@ export async function searchPages(
     .select({
       id: pages.id,
       spaceId: pages.spaceId,
+      folderId: pages.folderId,
       title: pages.title,
       version: pages.version,
       createdBy: pages.createdBy,

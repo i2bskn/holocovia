@@ -1,8 +1,9 @@
-import { SPACE_KIND_LABELS, formatDateTime, spaceDisplayName } from "../format";
+import { SPACE_KIND_LABELS, spaceDisplayName } from "../format";
+import { childFolders } from "../folders";
 import { Link } from "../Link";
 import { type ApiClient, loadSpaceView, useView } from "../load";
-import { isValidId } from "../router";
 import { ViewStatus, useDocumentTitle, viewTitle } from "./common";
+import { EntryList } from "./EntryList";
 
 export function SpaceView({ client, id }: { client: ApiClient; id: string }) {
   const [state, reload] = useView(() => loadSpaceView(client, id), id);
@@ -11,7 +12,7 @@ export function SpaceView({ client, id }: { client: ApiClient; id: string }) {
   if (state.kind !== "ready") {
     return <ViewStatus state={state} notFoundMessage="スペースが見つかりません" onReload={reload} />;
   }
-  const { space, pages } = state.data;
+  const { space, folders, pages } = state.data;
   const name = spaceDisplayName(space);
   return (
     <main className="main">
@@ -27,22 +28,12 @@ export function SpaceView({ client, id }: { client: ApiClient; id: string }) {
         <h1>{name}</h1>
         <span className="space-kind">{SPACE_KIND_LABELS[space.kind]}</span>
       </div>
-      {pages.length === 0 ? (
-        <p>ページはまだありません</p>
-      ) : (
-        <ul className="pages">
-          {pages.map((page) => (
-            <li key={page.id}>
-              <span className="page-title">
-                {isValidId(page.id) ? <Link to={`/pages/${page.id}`}>{page.title}</Link> : page.title}
-              </span>
-              <time className="page-updated" dateTime={new Date(page.updated_at).toISOString()}>
-                {formatDateTime(page.updated_at)}
-              </time>
-            </li>
-          ))}
-        </ul>
-      )}
+      {/* Only the top level; the rest is shown on the folder screens. */}
+      <EntryList
+        folders={childFolders(folders, null)}
+        pages={pages.filter((page) => page.folder_id === null)}
+        emptyMessage="ページはまだありません"
+      />
     </main>
   );
 }

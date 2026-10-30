@@ -24,6 +24,7 @@ export function listPageSummaries(db: Db, spaceId: string): Promise<Omit<PageRow
     .select({
       id: pages.id,
       spaceId: pages.spaceId,
+      folderId: pages.folderId,
       title: pages.title,
       version: pages.version,
       createdBy: pages.createdBy,

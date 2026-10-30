@@ -69,6 +69,7 @@ describe("GET /api/v1/search", () => {
     expect(result.hits[0]).toEqual({
       id: byTitle.id,
       space_id: everyone.id,
+      folder_id: null,
       title: "Deploy guide",
       version: 1,
       created_by: null,

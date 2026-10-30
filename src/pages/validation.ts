@@ -13,7 +13,7 @@ export const invalidTitleMessage =
   "タイトルは 1 文字以上 200 文字以下で、改行などの制御文字を含まない文字列にしてください";
 export const invalidPageBodyMessage = "本文は 512KB 以下で、NUL 文字を含まない文字列にしてください";
 export const invalidVersionMessage = "version は 1 以上の整数で指定してください";
-export const emptyUpdateMessage = "title か body のどちらかを指定してください";
+export const emptyUpdateMessage = "title、body、folder_id のいずれかを指定してください";
 export const versionConflictMessage = "ページが他の人に更新されています。最新の内容を取得してからやり直してください";
 export const invalidSearchQueryMessage =
   "検索語は 1 文字以上 100 文字以下で、改行などの制御文字を含まない文字列にしてください";

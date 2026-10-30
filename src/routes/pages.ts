@@ -4,6 +4,7 @@ import type { CreatePageInput, CreatePageRequest, UpdatePageInput, UpdatePageReq
 import { pages } from "../db/schema";
 import type { AppEnv } from "../env";
 import { apiError, requireUser } from "../auth/middleware";
+import { folderNotFoundMessage, invalidFolderIdMessage, normalizeFolderRef } from "../folders/validation";
 import { findAccessiblePage } from "../pages/queries";
 import { updatePage } from "../pages/service";
 import {
@@ -28,17 +29,23 @@ function invalidPageBody(c: Context<AppEnv>): Response {
   return apiError(c, 400, "invalid_page_body", invalidPageBodyMessage);
 }
 
+function invalidFolderId(c: Context<AppEnv>): Response {
+  return apiError(c, 400, "invalid_folder_id", invalidFolderIdMessage);
+}
+
 export const createPageBody = jsonBody<CreatePageRequest, CreatePageInput>((body, c) => {
   const title = normalizePageTitle(body.title);
   if (title === null) return invalidTitle(c);
   if (!isValidPageBody(body.body)) return invalidPageBody(c);
-  return { ok: true, value: { title, body: body.body } };
+  const folderId = normalizeFolderRef(body.folder_id);
+  if (!folderId.ok) return invalidFolderId(c);
+  return { ok: true, value: { title, body: body.body, folderId: folderId.value ?? null } };
 });
 
 const updatePageBody = jsonBody<UpdatePageRequest, UpdatePageInput>((body, c) => {
   const version = normalizeVersion(body.version);
   if (version === null) return apiError(c, 400, "invalid_version", invalidVersionMessage);
-  if (body.title === undefined && body.body === undefined) {
+  if (body.title === undefined && body.body === undefined && body.folder_id === undefined) {
     return apiError(c, 400, "empty_update", emptyUpdateMessage);
   }
   const value: UpdatePageInput = { version };
@@ -50,6 +57,11 @@ const updatePageBody = jsonBody<UpdatePageRequest, UpdatePageInput>((body, c) =>
   if (body.body !== undefined) {
     if (!isValidPageBody(body.body)) return invalidPageBody(c);
     value.body = body.body;
+  }
+  if (body.folder_id !== undefined) {
+    const folderId = normalizeFolderRef(body.folder_id);
+    if (!folderId.ok) return invalidFolderId(c);
+    value.folderId = folderId.value;
   }
   return { ok: true, value };
 });
@@ -64,6 +76,8 @@ const pagesApi = new Hono<AppEnv>()
     const result = await updatePage(c.get("db"), c.get("user"), c.req.param("id"), c.req.valid("json"));
     if (result.ok) return c.json(toApiPage(result.page), 200);
     if (result.error === "not_found") return apiError(c, 404, "not_found", pageNotFoundMessage);
+    // 400 rather than 404: the page in the path exists, but the folder in the body does not.
+    if (result.error === "folder_not_found") return apiError(c, 400, "folder_not_found", folderNotFoundMessage);
     return apiError(c, 409, "version_conflict", versionConflictMessage);
   })
   .delete("/:id", requireUser, async (c) => {

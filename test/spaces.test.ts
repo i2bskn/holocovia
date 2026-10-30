@@ -9,12 +9,14 @@ import { spaces, users, type SpaceRow, type UserRow } from "../src/db/schema";
 import { accessibleSpacesWhere, canAccessSpace } from "../src/spaces/access";
 import { insertPersonalSpaceStatement } from "../src/spaces/queries";
 import {
+  countFolders,
   countPages,
   countPersonalSpaces,
   countSpaces,
   createUser,
   createUserWithoutSpace,
   db,
+  insertFolder,
   insertPage,
   login,
   resetDb,
@@ -290,6 +292,24 @@ describe("DELETE /api/v1/spaces/:id", () => {
     expect(await countPages()).toBe(1);
 
     expect((await send(`/api/v1/pages/${page.id}`, { method: "DELETE", cookies: adminCookies })).status).toBe(204);
+    expect((await deleteSpace(space.id, adminCookies)).status).toBe(204);
+  });
+
+  it("returns 409 space_not_empty for a space with only folders and keeps them", async () => {
+    const space = await insertSpace("everyone", "Folders only");
+    const folder = await insertFolder({ spaceId: space.id });
+    const res = await deleteSpace(space.id, adminCookies);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({
+      error: {
+        code: "space_not_empty",
+        message: "ページかフォルダが残っているスペースは削除できません。中身を移すか削除してから消してください",
+      },
+    });
+    expect(await db.query.spaces.findFirst({ where: eq(spaces.id, space.id) })).toEqual(space);
+    expect(await countFolders()).toBe(1);
+
+    expect((await send(`/api/v1/folders/${folder.id}`, { method: "DELETE", cookies: adminCookies })).status).toBe(204);
     expect((await deleteSpace(space.id, adminCookies)).status).toBe(204);
   });
 

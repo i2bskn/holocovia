@@ -142,6 +142,19 @@ a {
   min-width: 0;
 }
 
+.folder-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.folder-icon {
+  width: 1em;
+  height: 1em;
+  margin-right: 0.4rem;
+  vertical-align: -0.125em;
+  color: #666;
+}
+
 .page-updated,
 .page-meta {
   font-size: 0.8rem;

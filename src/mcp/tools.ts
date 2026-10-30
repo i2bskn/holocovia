@@ -2,10 +2,25 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { asc } from "drizzle-orm";
 import { z } from "zod";
-import type { PageList, SearchResult, SpaceList, UpdatePageInput } from "../api/types";
+import type { FolderList, PageList, SearchResult, SpaceList, UpdateFolderInput, UpdatePageInput } from "../api/types";
 import { describeError } from "../auth/middleware";
 import type { Db } from "../db/client";
 import { spaces, type UserRow } from "../db/schema";
+import { listFolders } from "../folders/queries";
+import { createFolder, deleteFolder, updateFolder } from "../folders/service";
+import {
+  emptyFolderUpdateMessage,
+  folderCycleMessage,
+  folderNotEmptyMessage,
+  folderNotFoundMessage,
+  invalidFolderIdMessage,
+  invalidFolderNameMessage,
+  invalidParentIdMessage,
+  normalizeFolderName,
+  normalizeFolderRef,
+  parentNotFoundOnCreateMessage,
+  parentNotFoundOnMoveMessage,
+} from "../folders/validation";
 import { findAccessiblePage, listPageSummaries } from "../pages/queries";
 import { searchAccessiblePages } from "../pages/search";
 import { createPage, updatePage } from "../pages/service";
@@ -22,7 +37,7 @@ import {
   pageNotFoundMessage,
   versionConflictMessage,
 } from "../pages/validation";
-import { toApiPage, toApiPageSummary, toApiSearchHit, toApiSpace } from "../routes/api";
+import { toApiFolder, toApiPage, toApiPageSummary, toApiSearchHit, toApiSpace } from "../routes/api";
 import { accessibleSpacesWhere, canAccessSpace } from "../spaces/access";
 import { findSpaceById } from "../spaces/queries";
 
@@ -82,6 +97,7 @@ export function registerTools(server: McpServer, { db, user }: ToolDeps): void {
     {
       description:
         "List the pages in a space, most recently updated first. Returns titles and metadata without page bodies. " +
+        "folder_id is the folder the page is in (see list_folders), or null at the top level of the space. " +
         "Use get_page with a page id to read the body.",
       inputSchema: { space_id: z.string().describe("The id of a space returned by list_spaces") },
       annotations: readOnlyAnnotations,
@@ -148,7 +164,7 @@ export function registerTools(server: McpServer, { db, user }: ToolDeps): void {
     "create_page",
     {
       description:
-        "Create a page in a space. The body is Markdown. " +
+        "Create a page in a space, optionally in a folder of that space. The body is Markdown. " +
         "Returns the new page's metadata (id, version, ...) without the body. " +
         "A page in the personal space (kind=personal) is visible only to the calling user; " +
         "a page in an 'everyone' space is visible to all users.",
@@ -156,17 +172,29 @@ export function registerTools(server: McpServer, { db, user }: ToolDeps): void {
         space_id: z.string().describe("The id of a space returned by list_spaces"),
         title: z.string().describe("The page title, 1 to 200 characters, without line breaks"),
         body: z.string().describe("The page body in Markdown, up to 512KB"),
+        folder_id: z
+          .string()
+          .optional()
+          .describe("The id of a folder in the same space, from list_folders. Omit to create the page at the top level"),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
-    ({ space_id, title, body }) =>
+    ({ space_id, title, body, folder_id }) =>
       guard("create_page", async () => {
         // Validated in the same order as POST /api/v1/spaces/:id/pages.
         const normalizedTitle = normalizePageTitle(title);
         if (normalizedTitle === null) return errorResult(invalidTitleMessage);
         if (!isValidPageBody(body)) return errorResult(invalidPageBodyMessage);
-        const result = await createPage(db, user, space_id, { title: normalizedTitle, body });
-        if (!result.ok) return errorResult("スペースが見つかりません");
+        const folderId = normalizeFolderRef(folder_id);
+        if (!folderId.ok) return errorResult(invalidFolderIdMessage);
+        const result = await createPage(db, user, space_id, {
+          title: normalizedTitle,
+          body,
+          folderId: folderId.value ?? null,
+        });
+        if (!result.ok) {
+          return errorResult(result.error === "folder_not_found" ? folderNotFoundMessage : "スペースが見つかりません");
+        }
         // No body: the caller has just sent it, and it can be up to 512KB.
         return jsonResult(toApiPageSummary(result.page));
       }),
@@ -176,7 +204,9 @@ export function registerTools(server: McpServer, { db, user }: ToolDeps): void {
     "update_page",
     {
       description:
-        "Update the title and/or the Markdown body of a page. " +
+        "Update the title, the Markdown body and/or the folder of a page. " +
+        "folder_id moves the page to a folder in the same space; null moves it to the top level. " +
+        "A page cannot be moved to another space. " +
         "version must be the current version from get_page; if someone else updated the page first, " +
         "the call fails and nothing is changed. body replaces the whole body. " +
         "There is no edit history yet, so the previous content cannot be restored. " +
@@ -198,16 +228,26 @@ export function registerTools(server: McpServer, { db, user }: ToolDeps): void {
           .string()
           .optional()
           .describe("The new body in Markdown, up to 512KB. Replaces the whole body. Omit to keep the current body"),
+        folder_id: z
+          .string()
+          .nullable()
+          .optional()
+          .describe(
+            "The id of a folder in the same space to move the page to, from list_folders. " +
+              "null moves it to the top level of the space. Omit to keep the current folder",
+          ),
       },
       // Destructive: there is no history, so overwritten content cannot be restored.
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     },
-    ({ page_id, version, title, body }) =>
+    ({ page_id, version, title, body, folder_id }) =>
       guard("update_page", async () => {
         // Validated in the same order as PATCH /api/v1/pages/:id.
         const normalizedVersion = normalizeVersion(version);
         if (normalizedVersion === null) return errorResult(invalidVersionMessage);
-        if (title === undefined && body === undefined) return errorResult(emptyUpdateMessage);
+        if (title === undefined && body === undefined && folder_id === undefined) {
+          return errorResult(emptyUpdateMessage);
+        }
         const input: UpdatePageInput = { version: normalizedVersion };
         if (title !== undefined) {
           const normalizedTitle = normalizePageTitle(title);
@@ -218,12 +258,143 @@ export function registerTools(server: McpServer, { db, user }: ToolDeps): void {
           if (!isValidPageBody(body)) return errorResult(invalidPageBodyMessage);
           input.body = body;
         }
+        if (folder_id !== undefined) {
+          const folderId = normalizeFolderRef(folder_id);
+          if (!folderId.ok) return errorResult(invalidFolderIdMessage);
+          input.folderId = folderId.value;
+        }
         const result = await updatePage(db, user, page_id, input);
         if (result.ok) return jsonResult(toApiPageSummary(result.page));
         if (result.error === "not_found") return errorResult(pageNotFoundMessage);
+        if (result.error === "folder_not_found") return errorResult(folderNotFoundMessage);
         return errorResult(
           `${versionConflictMessage}。get_page で最新の version と本文を取得し、変更を反映し直してから update_page を呼んでください`,
         );
+      }),
+  );
+
+  server.registerTool(
+    "list_folders",
+    {
+      description:
+        "List all folders in a space as a flat list, ordered by name. Folders organize pages and can be nested. " +
+        "parent_id is the folder it is in, or null at the top level of the space; build the tree with parent_id. " +
+        "A page's folder_id (from list_pages) refers to one of these folders.",
+      inputSchema: { space_id: z.string().describe("The id of a space returned by list_spaces") },
+      annotations: readOnlyAnnotations,
+    },
+    ({ space_id }) =>
+      guard("list_folders", async () => {
+        const space = await findSpaceById(db, space_id);
+        // Spaces the user cannot access are reported as missing so that their existence is not revealed.
+        if (!space || !canAccessSpace(user, space)) return errorResult("スペースが見つかりません");
+        const rows = await listFolders(db, space.id);
+        const body: FolderList = { folders: rows.map(toApiFolder) };
+        return jsonResult(body);
+      }),
+  );
+
+  server.registerTool(
+    "create_folder",
+    {
+      description:
+        "Create a folder in a space, at the top level or inside another folder of the same space. " +
+        "Folders have no permissions of their own: everyone who can access the space can use them. " +
+        "Names need not be unique. Returns the new folder.",
+      inputSchema: {
+        space_id: z.string().describe("The id of a space returned by list_spaces"),
+        name: z.string().describe("The folder name, 1 to 100 characters, without line breaks"),
+        parent_id: z
+          .string()
+          .optional()
+          .describe("The id of a folder in the same space to create this folder in. Omit for the top level"),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    ({ space_id, name, parent_id }) =>
+      guard("create_folder", async () => {
+        // Validated in the same order as POST /api/v1/spaces/:id/folders.
+        const normalizedName = normalizeFolderName(name);
+        if (normalizedName === null) return errorResult(invalidFolderNameMessage);
+        const parentId = normalizeFolderRef(parent_id);
+        if (!parentId.ok) return errorResult(invalidParentIdMessage);
+        const result = await createFolder(db, user, space_id, {
+          name: normalizedName,
+          parentId: parentId.value ?? null,
+        });
+        if (result.ok) return jsonResult(toApiFolder(result.folder));
+        if (result.error === "parent_not_found") return errorResult(parentNotFoundOnCreateMessage);
+        return errorResult("スペースが見つかりません");
+      }),
+  );
+
+  server.registerTool(
+    "update_folder",
+    {
+      description:
+        "Rename a folder and/or move it to another folder in the same space. " +
+        "parent_id null moves it to the top level of the space. A folder cannot be moved into itself or " +
+        "one of its subfolders, or to another space. Its pages and subfolders move with it. Returns the folder.",
+      inputSchema: {
+        folder_id: z.string().describe("The id of a folder returned by list_folders"),
+        name: z
+          .string()
+          .optional()
+          .describe("The new name, 1 to 100 characters, without line breaks. Omit to keep the current name"),
+        parent_id: z
+          .string()
+          .nullable()
+          .optional()
+          .describe(
+            "The id of a folder in the same space to move this folder into, or null for the top level. " +
+              "Omit to keep the current parent",
+          ),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    ({ folder_id, name, parent_id }) =>
+      guard("update_folder", async () => {
+        // Validated in the same order as PATCH /api/v1/folders/:id.
+        if (name === undefined && parent_id === undefined) return errorResult(emptyFolderUpdateMessage);
+        const input: UpdateFolderInput = {};
+        if (name !== undefined) {
+          const normalizedName = normalizeFolderName(name);
+          if (normalizedName === null) return errorResult(invalidFolderNameMessage);
+          input.name = normalizedName;
+        }
+        if (parent_id !== undefined) {
+          const parentId = normalizeFolderRef(parent_id);
+          if (!parentId.ok) return errorResult(invalidParentIdMessage);
+          input.parentId = parentId.value;
+        }
+        const result = await updateFolder(db, user, folder_id, input);
+        if (result.ok) return jsonResult(toApiFolder(result.folder));
+        switch (result.error) {
+          case "not_found":
+            return errorResult(folderNotFoundMessage);
+          case "parent_not_found":
+            return errorResult(parentNotFoundOnMoveMessage);
+          case "folder_cycle":
+            return errorResult(folderCycleMessage);
+        }
+      }),
+  );
+
+  server.registerTool(
+    "delete_folder",
+    {
+      description:
+        "Delete an empty folder. A folder that still has pages or folders in it cannot be deleted; " +
+        "move or delete its contents first.",
+      inputSchema: { folder_id: z.string().describe("The id of a folder returned by list_folders") },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    ({ folder_id }) =>
+      guard("delete_folder", async () => {
+        const result = await deleteFolder(db, user, folder_id);
+        if (result.ok) return jsonResult({ id: folder_id, deleted: true });
+        if (result.error === "not_found") return errorResult(folderNotFoundMessage);
+        return errorResult(folderNotEmptyMessage);
       }),
   );
 }

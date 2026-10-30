@@ -2,7 +2,7 @@ import { createExecutionContext } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { hashPassword } from "../src/auth/password";
 import { createDb } from "../src/db/client";
-import { pages, users, type PageRow, type UserRow } from "../src/db/schema";
+import { folders, pages, users, type FolderRow, type PageRow, type UserRow } from "../src/db/schema";
 import type { Bindings } from "../src/env";
 import { insertPersonalSpaceStatement } from "../src/spaces/queries";
 import worker from "../src/index";
@@ -17,6 +17,8 @@ export async function resetDb(): Promise<void> {
   await env.DB.batch([
     env.DB.prepare("DELETE FROM sessions"),
     env.DB.prepare("DELETE FROM pages"),
+    // One statement, so the foreign key from parent_id is checked only after all folders are gone.
+    env.DB.prepare("DELETE FROM folders"),
     env.DB.prepare("DELETE FROM spaces"),
     env.DB.prepare("DELETE FROM users"),
   ]);
@@ -169,6 +171,7 @@ export async function createUserWithoutSpace(params: {
 // Inserts a page directly, bypassing the API and its access checks.
 export async function insertPage(params: {
   spaceId: string;
+  folderId?: string | null;
   title?: string;
   body?: string;
   createdBy?: string | null;
@@ -182,6 +185,7 @@ export async function insertPage(params: {
     .values({
       id: params.id ?? crypto.randomUUID(),
       spaceId: params.spaceId,
+      folderId: params.folderId ?? null,
       title: params.title ?? "Page",
       body: params.body ?? "",
       version: 1,
@@ -197,5 +201,37 @@ export async function insertPage(params: {
 
 export async function countPages(): Promise<number> {
   const row = await env.DB.prepare("SELECT COUNT(*) AS count FROM pages").first<{ count: number }>();
+  return row?.count ?? 0;
+}
+
+// Inserts a folder directly, bypassing the API and its access checks.
+export async function insertFolder(params: {
+  spaceId: string;
+  parentId?: string | null;
+  name?: string;
+  createdBy?: string | null;
+  at?: number;
+}): Promise<FolderRow> {
+  const at = params.at ?? Date.now();
+  const createdBy = params.createdBy ?? null;
+  const [folder] = await db
+    .insert(folders)
+    .values({
+      id: crypto.randomUUID(),
+      spaceId: params.spaceId,
+      parentId: params.parentId ?? null,
+      name: params.name ?? "Folder",
+      createdBy,
+      updatedBy: createdBy,
+      createdAt: at,
+      updatedAt: at,
+    })
+    .returning();
+  if (!folder) throw new Error("failed to create folder");
+  return folder;
+}
+
+export async function countFolders(): Promise<number> {
+  const row = await env.DB.prepare("SELECT COUNT(*) AS count FROM folders").first<{ count: number }>();
   return row?.count ?? 0;
 }

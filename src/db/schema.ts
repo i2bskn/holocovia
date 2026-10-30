@@ -1,5 +1,13 @@
 import { sql } from "drizzle-orm";
-import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import {
+  check,
+  index,
+  integer,
+  sqliteTable,
+  text,
+  uniqueIndex,
+  type AnySQLiteColumn,
+} from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable(
   "users",
@@ -70,6 +78,27 @@ export const spaces = sqliteTable(
   ],
 );
 
+// Folders organize pages inside one space and carry no permissions of their own.
+// No ON DELETE, so a folder that still has folders or pages cannot be deleted.
+export const folders = sqliteTable(
+  "folders",
+  {
+    id: text("id").primaryKey(),
+    // Not deleted in cascade, so deleting a space never deletes its folders.
+    spaceId: text("space_id")
+      .notNull()
+      .references(() => spaces.id),
+    // NULL for a folder at the top level of the space. Same space as the parent (checked by the app).
+    parentId: text("parent_id").references((): AnySQLiteColumn => folders.id),
+    name: text("name").notNull(),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [index("folders_space_id_idx").on(t.spaceId), index("folders_parent_id_idx").on(t.parentId)],
+);
+
 // The body is Markdown stored as is. version is for optimistic locking and starts at 1.
 export const pages = sqliteTable(
   "pages",
@@ -79,6 +108,8 @@ export const pages = sqliteTable(
     spaceId: text("space_id")
       .notNull()
       .references(() => spaces.id),
+    // NULL for a page at the top level of the space. Same space as the folder (checked by the app).
+    folderId: text("folder_id").references(() => folders.id),
     title: text("title").notNull(),
     body: text("body").notNull(),
     version: integer("version").notNull(),
@@ -88,10 +119,14 @@ export const pages = sqliteTable(
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },
-  (t) => [index("pages_space_id_updated_at_idx").on(t.spaceId, t.updatedAt)],
+  (t) => [
+    index("pages_space_id_updated_at_idx").on(t.spaceId, t.updatedAt),
+    index("pages_folder_id_idx").on(t.folderId),
+  ],
 );
 
 export type UserRow = typeof users.$inferSelect;
 export type SessionRow = typeof sessions.$inferSelect;
 export type SpaceRow = typeof spaces.$inferSelect;
+export type FolderRow = typeof folders.$inferSelect;
 export type PageRow = typeof pages.$inferSelect;

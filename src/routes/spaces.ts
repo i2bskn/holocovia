@@ -1,16 +1,27 @@
 import { Hono } from "hono";
 import { and, asc, eq, ne, sql } from "drizzle-orm";
-import type { CreateSpaceInput, CreateSpaceRequest, PageList, SpaceList, UpdateSpaceRequest } from "../api/types";
+import type {
+  CreateSpaceInput,
+  CreateSpaceRequest,
+  FolderList,
+  PageList,
+  SpaceList,
+  UpdateSpaceRequest,
+} from "../api/types";
 import { clock } from "../clock";
-import { pages, spaces } from "../db/schema";
+import { folders, pages, spaces } from "../db/schema";
 import type { AppEnv } from "../env";
 import { apiError, requireAdmin, requireUser } from "../auth/middleware";
 import { isUniqueViolation } from "../auth/users";
+import { listFolders } from "../folders/queries";
+import { createFolder } from "../folders/service";
+import { folderNotFoundMessage, parentNotFoundOnCreateMessage } from "../folders/validation";
 import { listPageSummaries } from "../pages/queries";
 import { createPage } from "../pages/service";
 import { accessibleSpacesWhere, canAccessSpace } from "../spaces/access";
 import { findSpaceById } from "../spaces/queries";
-import { jsonBody, toApiPage, toApiPageSummary, toApiSpace } from "./api";
+import { jsonBody, toApiFolder, toApiPage, toApiPageSummary, toApiSpace } from "./api";
+import { createFolderBody } from "./folders";
 import { createPageBody } from "./pages";
 
 const SPACE_NAME_MAX_LENGTH = 100;
@@ -116,8 +127,8 @@ const spacesApi = new Hono<AppEnv>()
     // Only the owner can see a personal space here, so there is nothing to hide: 403 rather than 404.
     if (space.kind === "personal") return apiError(c, 403, "forbidden", "個人スペースは削除できません");
 
-    // One statement, so a page created after the check above keeps the space.
-    // The foreign key from pages.space_id also rejects the delete.
+    // One statement, so a page or folder created after the check above keeps the space.
+    // The foreign keys from pages.space_id and folders.space_id also reject the delete.
     const result = await db
       .delete(spaces)
       .where(
@@ -125,6 +136,7 @@ const spacesApi = new Hono<AppEnv>()
           eq(spaces.id, space.id),
           ne(spaces.kind, "personal"),
           sql`NOT EXISTS (SELECT 1 FROM ${pages} WHERE ${pages.spaceId} = ${space.id})`,
+          sql`NOT EXISTS (SELECT 1 FROM ${folders} WHERE ${folders.spaceId} = ${space.id})`,
         ),
       )
       .run();
@@ -134,7 +146,7 @@ const spacesApi = new Hono<AppEnv>()
       c,
       409,
       "space_not_empty",
-      "ページが残っているスペースは削除できません。ページを移すか削除してから消してください",
+      "ページかフォルダが残っているスペースは削除できません。中身を移すか削除してから消してください",
     );
   })
   .get("/:id/pages", requireUser, async (c) => {
@@ -147,8 +159,27 @@ const spacesApi = new Hono<AppEnv>()
   })
   .post("/:id/pages", requireUser, createPageBody, async (c) => {
     const result = await createPage(c.get("db"), c.get("user"), c.req.param("id"), c.req.valid("json"));
-    if (!result.ok) return apiError(c, 404, "not_found", spaceNotFound);
-    return c.json(toApiPage(result.page), 201);
+    if (result.ok) return c.json(toApiPage(result.page), 201);
+    // 400 rather than 404: the space in the path exists, but the folder in the body does not.
+    if (result.error === "folder_not_found") return apiError(c, 400, "folder_not_found", folderNotFoundMessage);
+    return apiError(c, 404, "not_found", spaceNotFound);
+  })
+  .get("/:id/folders", requireUser, async (c) => {
+    const db = c.get("db");
+    const space = await findSpaceById(db, c.req.param("id"));
+    if (!space || !canAccessSpace(c.get("user"), space)) return apiError(c, 404, "not_found", spaceNotFound);
+    const rows = await listFolders(db, space.id);
+    const body: FolderList = { folders: rows.map(toApiFolder) };
+    return c.json(body, 200);
+  })
+  .post("/:id/folders", requireUser, createFolderBody, async (c) => {
+    const result = await createFolder(c.get("db"), c.get("user"), c.req.param("id"), c.req.valid("json"));
+    if (result.ok) return c.json(toApiFolder(result.folder), 201);
+    // 400 rather than 404: the space in the path exists, but the parent in the body does not.
+    if (result.error === "parent_not_found") {
+      return apiError(c, 400, "parent_not_found", parentNotFoundOnCreateMessage);
+    }
+    return apiError(c, 404, "not_found", spaceNotFound);
   });
 
 export default spacesApi;

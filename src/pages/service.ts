@@ -1,16 +1,19 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, sql, type SQL } from "drizzle-orm";
 import type { CreatePageInput, UpdatePageInput } from "../api/types";
 import { clock } from "../clock";
 import type { Db } from "../db/client";
 import { isForeignKeyViolation } from "../db/errors";
-import { pages, type PageRow, type UserRow } from "../db/schema";
+import { folders, pages, type PageRow, type UserRow } from "../db/schema";
+import { folderExistsInSpace } from "../folders/queries";
 import { canAccessSpace } from "../spaces/access";
 import { findSpaceById } from "../spaces/queries";
 import { findAccessiblePage, findPageById } from "./queries";
 
 // Shared by the REST API and the MCP tools. Input is validated by the callers (see validation.ts).
 
-export type CreatePageResult = { ok: true; page: PageRow } | { ok: false; error: "space_not_found" };
+export type CreatePageResult =
+  | { ok: true; page: PageRow }
+  | { ok: false; error: "space_not_found" | "folder_not_found" };
 
 export async function createPage(
   db: Db,
@@ -21,6 +24,11 @@ export async function createPage(
   const space = await findSpaceById(db, spaceId);
   // Spaces the user cannot access are reported as missing so that their existence is not revealed.
   if (!space || !canAccessSpace(user, space)) return { ok: false, error: "space_not_found" };
+  // Assumes that the space of a folder never changes, so the check cannot go stale before the insert.
+  // When folders can move between spaces (M3), make this one conditional INSERT ... SELECT ... WHERE EXISTS.
+  if (input.folderId !== null && !(await folderExistsInSpace(db, input.folderId, space.id))) {
+    return { ok: false, error: "folder_not_found" };
+  }
 
   const now = clock.now();
   try {
@@ -29,6 +37,7 @@ export async function createPage(
       .values({
         id: crypto.randomUUID(),
         spaceId: space.id,
+        folderId: input.folderId,
         title: input.title,
         body: input.body,
         version: 1,
@@ -41,13 +50,18 @@ export async function createPage(
       .get();
     return { ok: true, page };
   } catch (error) {
-    // The space was deleted after the check above (or the user, whose session ends with it).
-    if (isForeignKeyViolation(error)) return { ok: false, error: "space_not_found" };
-    throw error;
+    // The folder or the space was deleted after the checks above (or the user, whose session ends with it).
+    if (!isForeignKeyViolation(error)) throw error;
+    if (input.folderId !== null && !(await folderExistsInSpace(db, input.folderId, space.id))) {
+      return { ok: false, error: "folder_not_found" };
+    }
+    return { ok: false, error: "space_not_found" };
   }
 }
 
-export type UpdatePageResult = { ok: true; page: PageRow } | { ok: false; error: "not_found" | "version_conflict" };
+export type UpdatePageResult =
+  | { ok: true; page: PageRow }
+  | { ok: false; error: "not_found" | "version_conflict" | "folder_not_found" };
 
 export async function updatePage(
   db: Db,
@@ -59,17 +73,23 @@ export async function updatePage(
   if (!page) return { ok: false, error: "not_found" };
 
   // space_id keeps the write inside the space whose access was just checked.
-  // The version is incremented even if nothing changed.
+  // The version is incremented even if nothing changed. Moving to another folder is an update too.
+  const folderId = input.folderId;
+  const conditions: SQL[] = [eq(pages.id, page.id), eq(pages.spaceId, page.spaceId), eq(pages.version, input.version)];
+  if (typeof folderId === "string") {
+    conditions.push(sql`EXISTS (SELECT 1 FROM ${folders} f WHERE f.id = ${folderId} AND f.space_id = ${page.spaceId})`);
+  }
   const updated = await db
     .update(pages)
     .set({
       ...(input.title !== undefined && { title: input.title }),
       ...(input.body !== undefined && { body: input.body }),
+      ...(folderId !== undefined && { folderId }),
       version: sql`${pages.version} + 1`,
       updatedBy: user.id,
       updatedAt: clock.now(),
     })
-    .where(and(eq(pages.id, page.id), eq(pages.spaceId, page.spaceId), eq(pages.version, input.version)))
+    .where(and(...conditions))
     .returning()
     .get();
   if (updated) return { ok: true, page: updated };
@@ -77,5 +97,7 @@ export async function updatePage(
   // Access is not checked again: the page was visible just before.
   const current = await findPageById(db, page.id);
   if (!current || current.spaceId !== page.spaceId) return { ok: false, error: "not_found" };
+  if (current.version !== input.version) return { ok: false, error: "version_conflict" };
+  if (typeof folderId === "string") return { ok: false, error: "folder_not_found" };
   return { ok: false, error: "version_conflict" };
 }

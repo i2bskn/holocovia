@@ -1,4 +1,5 @@
 import { formatDateTime, spaceDisplayName } from "../format";
+import { folderPath } from "../folders";
 import { Link } from "../Link";
 import { type ApiClient, loadPageView, useView } from "../load";
 import { Markdown } from "../Markdown";
@@ -12,9 +13,10 @@ export function PageView({ client, id, origin }: { client: ApiClient; id: string
   if (state.kind !== "ready") {
     return <ViewStatus state={state} notFoundMessage="ページが見つかりません" onReload={reload} />;
   }
-  const { page, space } = state.data;
-  // The page is shown even if its space could not be loaded.
+  const { page, space, folders } = state.data;
+  // The page is shown even if its space or folders could not be loaded.
   const spaceName = space ? spaceDisplayName(space) : "スペース";
+  const path = folders && page.folder_id !== null ? folderPath(folders, page.folder_id) : [];
   return (
     <main className="main">
       <nav className="breadcrumbs" aria-label="パンくずリスト">
@@ -23,6 +25,11 @@ export function PageView({ client, id, origin }: { client: ApiClient; id: string
             <Link to="/">スペース</Link>
           </li>
           <li>{isValidId(page.space_id) ? <Link to={`/spaces/${page.space_id}`}>{spaceName}</Link> : spaceName}</li>
+          {path.map((folder) => (
+            <li key={folder.id}>
+              {isValidId(folder.id) ? <Link to={`/folders/${folder.id}`}>{folder.name}</Link> : folder.name}
+            </li>
+          ))}
           <li aria-current="page">{page.title}</li>
         </ol>
       </nav>

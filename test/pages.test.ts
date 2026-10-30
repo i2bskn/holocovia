@@ -110,6 +110,7 @@ describe("POST /api/v1/spaces/:id/pages", () => {
     expect(body).toEqual({
       id: expect.stringMatching(UUID_V4),
       space_id: everyone.id,
+      folder_id: null,
       title: "Hello",
       body: "  # Hi\n\n",
       version: 1,
@@ -215,6 +216,7 @@ describe("GET /api/v1/spaces/:id/pages", () => {
     expect(body.pages[0]).toEqual({
       id: older.id,
       space_id: everyone.id,
+      folder_id: null,
       title: "Updated",
       version: 2,
       created_by: null,
@@ -257,6 +259,7 @@ describe("GET /api/v1/pages/:id", () => {
     expect(await res.json()).toEqual({
       id: page.id,
       space_id: everyone.id,
+      folder_id: null,
       title: "Hello",
       body: "# Hi",
       version: 1,
@@ -333,6 +336,7 @@ describe("PATCH /api/v1/pages/:id", () => {
     expect(body).toEqual({
       id: page.id,
       space_id: everyone.id,
+      folder_id: null,
       title: "New",
       body: "Body",
       version: 2,
@@ -474,7 +478,7 @@ describe("error messages", () => {
         "invalid_version",
         "version は 1 以上の整数で指定してください",
       ],
-      [patchPage(page.id, adminCookies, { version: 1 }), "empty_update", "title か body のどちらかを指定してください"],
+      [patchPage(page.id, adminCookies, { version: 1 }), "empty_update", "title、body、folder_id のいずれかを指定してください"],
       [
         patchPage(page.id, adminCookies, { version: 5, title: "T" }),
         "version_conflict",

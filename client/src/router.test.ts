@@ -10,9 +10,19 @@ describe("matchRoute", () => {
     expect(matchRoute("/pages/abc")).toEqual({ name: "page", id: "abc" });
     expect(matchRoute(`/spaces/${UUID}`)).toEqual({ name: "space", id: UUID });
     expect(matchRoute(`/pages/${UUID}`)).toEqual({ name: "page", id: UUID });
+    expect(matchRoute("/folders/abc")).toEqual({ name: "folder", id: "abc" });
+    expect(matchRoute(`/folders/${UUID}`)).toEqual({ name: "folder", id: UUID });
   });
 
-  it.each(["/pages/..%2F..%2Fusers", "/spaces/x%2Fpages", "/pages/a%3Fb", "/spaces/%E3%81%82", "/pages/a.b"])(
+  it.each([
+    "/pages/..%2F..%2Fusers",
+    "/spaces/x%2Fpages",
+    "/pages/a%3Fb",
+    "/spaces/%E3%81%82",
+    "/pages/a.b",
+    "/folders/a.b",
+    "/folders/..%2Fspaces",
+  ])(
     "does not accept the ID in %s",
     (path) => {
       expect(matchRoute(path)).toEqual({ name: "notFound" });
@@ -39,7 +49,7 @@ describe("matchRoute", () => {
     expect(matchRoute(`/pages/${"a".repeat(65)}`)).toEqual({ name: "notFound" });
   });
 
-  it.each(["/spaces/", "/spaces/abc/", "/spaces/abc/x", "//spaces/abc", "/pages", "/unknown"])(
+  it.each(["/spaces/", "/spaces/abc/", "/spaces/abc/x", "//spaces/abc", "/pages", "/folders", "/folders/", "/unknown"])(
     "does not match %s",
     (path) => {
       expect(matchRoute(path)).toEqual({ name: "notFound" });

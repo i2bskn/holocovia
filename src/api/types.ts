@@ -84,10 +84,59 @@ export type UpdateSpaceRequest = {
   name: string;
 };
 
+// Folders organize pages inside one space and carry no permissions of their own.
+export type Folder = {
+  id: string;
+  space_id: string;
+  // null for a folder at the top level of the space.
+  parent_id: string | null;
+  name: string;
+  // null once the user is deleted.
+  created_by: string | null;
+  // null once the user is deleted.
+  updated_by: string | null;
+  // UNIX time in milliseconds.
+  created_at: number;
+  // UNIX time in milliseconds.
+  updated_at: number;
+};
+
+// All folders of a space as a flat list, ordered by name and id. Build the tree with parent_id.
+export type FolderList = {
+  folders: Folder[];
+};
+
+// A missing or null parent_id creates the folder at the top level of the space.
+export type CreateFolderRequest = {
+  name: string;
+  parent_id?: string | null;
+};
+
+// CreateFolderRequest after validation. name is trimmed and a missing parent_id is null.
+export type CreateFolderInput = {
+  name: string;
+  parentId: string | null;
+};
+
+// At least one of name and parent_id is required; this is checked at runtime, not by the type.
+// parent_id null moves the folder to the top level; the folder stays in its space.
+export type UpdateFolderRequest = {
+  name?: string;
+  parent_id?: string | null;
+};
+
+// UpdateFolderRequest after validation. name is trimmed; undefined keeps the current value.
+export type UpdateFolderInput = {
+  name?: string;
+  parentId?: string | null;
+};
+
 // A page without its body, as returned by page lists.
 export type PageSummary = {
   id: string;
   space_id: string;
+  // null for a page at the top level of the space.
+  folder_id: string | null;
   title: string;
   // Starts at 1 and is incremented on every update. Send it back when updating.
   version: number;
@@ -106,6 +155,7 @@ export type PageSummary = {
 export type Page = {
   id: string;
   space_id: string;
+  folder_id: string | null;
   title: string;
   version: number;
   created_by: string | null;
@@ -123,26 +173,40 @@ export type PageList = {
 export type CreatePageRequest = {
   title: string;
   body: string;
+  // A folder in the same space. Missing or null puts the page at the top level of the space.
+  folder_id?: string | null;
 };
 
-// CreatePageRequest after validation. title is trimmed.
-export type CreatePageInput = CreatePageRequest;
+// CreatePageRequest after validation. title is trimmed and a missing folder_id is null.
+export type CreatePageInput = {
+  title: string;
+  body: string;
+  folderId: string | null;
+};
 
-// At least one of title and body is required; this is checked at runtime, not by the type.
+// At least one of title, body and folder_id is required; this is checked at runtime, not by the type.
 export type UpdatePageRequest = {
   // The version the change is based on. A different current version is a conflict.
   version: number;
   title?: string;
   body?: string;
+  // Moves the page to a folder in the same space; null moves it to the top level.
+  folder_id?: string | null;
 };
 
-// UpdatePageRequest after validation. title is trimmed.
-export type UpdatePageInput = UpdatePageRequest;
+// UpdatePageRequest after validation. title is trimmed; undefined keeps the current value.
+export type UpdatePageInput = {
+  version: number;
+  title?: string;
+  body?: string;
+  folderId?: string | null;
+};
 
 // A page found by search, without its body. Written out flat like Page.
 export type SearchHit = {
   id: string;
   space_id: string;
+  folder_id: string | null;
   title: string;
   version: number;
   created_by: string | null;

@@ -3,18 +3,20 @@ import { createExecutionContext } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Page, PageList, PageSummary, SearchResult, Space, SpaceList } from "../src/api/types";
+import type { Folder, FolderList, Page, PageList, PageSummary, SearchResult, Space, SpaceList } from "../src/api/types";
 import { safeNext } from "../src/auth/redirect";
 import { issueSession } from "../src/auth/sessions";
 import { base64UrlEncode, signAccessToken } from "../src/auth/tokens";
-import { pages, spaces, users, type PageRow, type SpaceRow, type UserRow } from "../src/db/schema";
+import { folders, pages, spaces, users, type FolderRow, type PageRow, type SpaceRow, type UserRow } from "../src/db/schema";
 import type { Bindings } from "../src/env";
 import { mcpHandler } from "../src/mcp/handler";
 import { buildOAuthProviderOptions } from "../src/mcp/provider";
 import {
+  countFolders,
   countPages,
   createUser,
   db,
+  insertFolder,
   insertPage,
   login,
   OIDC_ORIGIN,
@@ -346,7 +348,7 @@ describe("POST /authorize", () => {
 });
 
 describe("MCP", () => {
-  it("initializes and lists the six tools with their annotations", async () => {
+  it("initializes and lists the ten tools with their annotations", async () => {
     const { access_token } = await authorizeClient(memberCookies);
     const init = await mcpRequest(access_token, "initialize", {
       protocolVersion: "2025-06-18",
@@ -363,11 +365,15 @@ describe("MCP", () => {
       result: { tools: { name: string; outputSchema?: unknown; annotations?: unknown }[] };
     };
     expect(listBody.result.tools.map((t) => t.name).sort()).toEqual([
+      "create_folder",
       "create_page",
+      "delete_folder",
       "get_page",
+      "list_folders",
       "list_pages",
       "list_spaces",
       "search_pages",
+      "update_folder",
       "update_page",
     ]);
     expect(listBody.result.tools.every((t) => t.outputSchema === undefined)).toBe(true);
@@ -380,6 +386,10 @@ describe("MCP", () => {
       search_pages: readOnly,
       create_page: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
       update_page: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+      list_folders: readOnly,
+      create_folder: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+      update_folder: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      delete_folder: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     });
   });
 
@@ -565,7 +575,7 @@ describe("MCP write tools", () => {
   const invalidTitle = "タイトルは 1 文字以上 200 文字以下で、改行などの制御文字を含まない文字列にしてください";
   const invalidPageBody = "本文は 512KB 以下で、NUL 文字を含まない文字列にしてください";
   const invalidVersion = "version は 1 以上の整数で指定してください";
-  const emptyUpdate = "title か body のどちらかを指定してください";
+  const emptyUpdate = "title、body、folder_id のいずれかを指定してください";
   const pageNotFound = "ページが見つかりません";
   const spaceNotFound = "スペースが見つかりません";
 
@@ -749,6 +759,239 @@ describe("MCP write tools", () => {
         await callTool(token, "update_page", { page_id: "missing", version: 1, body: "x" }),
         pageNotFound,
       );
+    });
+  });
+});
+
+describe("MCP folder tools", () => {
+  const spaceNotFound = "スペースが見つかりません";
+  const folderNotFound = "フォルダが見つかりません";
+  const invalidName = "フォルダの名前は 1 文字以上 100 文字以下で、改行などの制御文字を含まない文字列にしてください";
+
+  let token: string;
+  let everyone: SpaceRow;
+  let other: SpaceRow;
+  let adminSpace: SpaceRow;
+
+  beforeEach(async () => {
+    token = (await authorizeClient(memberCookies)).access_token;
+    everyone = await insertSpace("everyone", "Everyone");
+    other = await insertSpace("everyone", "Other");
+    adminSpace = await insertSpace("admin", "Admins");
+  });
+
+  function readFolder(id: string): Promise<FolderRow | undefined> {
+    return db.query.folders.findFirst({ where: eq(folders.id, id) });
+  }
+
+  function readPage(id: string): Promise<PageRow | undefined> {
+    return db.query.pages.findFirst({ where: eq(pages.id, id) });
+  }
+
+  // Folders the member cannot use as a parent or a page folder in the everyone space.
+  async function unusableFolders(): Promise<string[]> {
+    const elsewhere = await insertFolder({ spaceId: other.id });
+    const inAdminSpace = await insertFolder({ spaceId: adminSpace.id });
+    const inOthersPersonal = await insertFolder({ spaceId: (await personalSpaceOf(admin)).id });
+    return [elsewhere.id, inAdminSpace.id, inOthersPersonal.id, "missing"];
+  }
+
+  describe("list_folders", () => {
+    it("returns the same folders as the REST API", async () => {
+      const parent = await insertFolder({ spaceId: everyone.id, name: "b" });
+      await insertFolder({ spaceId: everyone.id, parentId: parent.id, name: "a" });
+      await insertFolder({ spaceId: other.id, name: "Elsewhere" });
+      const rest = (await (await send(`/api/v1/spaces/${everyone.id}/folders`, { cookies: memberCookies })).json()) as FolderList;
+      const result = toolJson<FolderList>(await callTool(token, "list_folders", { space_id: everyone.id }));
+      expect(result).toEqual(rest);
+      expect(result.folders.map((f) => f.name)).toEqual(["a", "b"]);
+    });
+
+    it("reports inaccessible and unknown spaces as missing", async () => {
+      for (const spaceId of [adminSpace.id, (await personalSpaceOf(admin)).id, "missing"]) {
+        expectToolError(await callTool(token, "list_folders", { space_id: spaceId }), spaceNotFound);
+      }
+    });
+  });
+
+  describe("create_folder", () => {
+    it("creates a folder at the top level and inside another folder", async () => {
+      const top = toolJson<Folder>(await callTool(token, "create_folder", { space_id: everyone.id, name: "  Docs  " }));
+      expect(top).toMatchObject({
+        space_id: everyone.id,
+        parent_id: null,
+        name: "Docs",
+        created_by: member.id,
+        updated_by: member.id,
+      });
+      const child = toolJson<Folder>(
+        await callTool(token, "create_folder", { space_id: everyone.id, name: "Child", parent_id: top.id }),
+      );
+      expect(child.parent_id).toBe(top.id);
+      expect(await readFolder(child.id)).toMatchObject({ spaceId: everyone.id, parentId: top.id, name: "Child" });
+    });
+
+    it("rejects an invalid name", async () => {
+      expectToolError(await callTool(token, "create_folder", { space_id: everyone.id, name: "a\nb" }), invalidName);
+      expect(await countFolders()).toBe(0);
+    });
+
+    it("rejects an empty parent_id", async () => {
+      expectToolError(
+        await callTool(token, "create_folder", { space_id: everyone.id, name: "Docs", parent_id: "" }),
+        "parent_id はフォルダの id か null で指定してください",
+      );
+      expect(await countFolders()).toBe(0);
+    });
+
+    it("rejects a parent in another space or an inaccessible space", async () => {
+      const ids = await unusableFolders();
+      for (const parentId of ids) {
+        expectToolError(
+          await callTool(token, "create_folder", { space_id: everyone.id, name: "Docs", parent_id: parentId }),
+          "親フォルダが見つかりません",
+        );
+      }
+      expect(await countFolders()).toBe(3);
+    });
+
+    it("reports inaccessible and unknown spaces as missing", async () => {
+      for (const spaceId of [adminSpace.id, (await personalSpaceOf(admin)).id, "missing"]) {
+        expectToolError(await callTool(token, "create_folder", { space_id: spaceId, name: "Docs" }), spaceNotFound);
+      }
+      expect(await countFolders()).toBe(0);
+    });
+  });
+
+  describe("update_folder", () => {
+    let folder: FolderRow;
+
+    beforeEach(async () => {
+      folder = await insertFolder({ spaceId: everyone.id, name: "Docs", createdBy: admin.id });
+    });
+
+    it("renames the folder", async () => {
+      const result = toolJson<Folder>(await callTool(token, "update_folder", { folder_id: folder.id, name: "Guides" }));
+      expect(result).toMatchObject({ id: folder.id, name: "Guides", parent_id: null, updated_by: member.id });
+    });
+
+    it("moves the folder into another folder and back to the top level with null", async () => {
+      const target = await insertFolder({ spaceId: everyone.id, name: "Target" });
+      const moved = toolJson<Folder>(await callTool(token, "update_folder", { folder_id: folder.id, parent_id: target.id }));
+      expect(moved.parent_id).toBe(target.id);
+      const top = toolJson<Folder>(await callTool(token, "update_folder", { folder_id: folder.id, parent_id: null }));
+      expect(top.parent_id).toBeNull();
+      expect(await readFolder(folder.id)).toMatchObject({ parentId: null, name: "Docs" });
+    });
+
+    it("rejects moving the folder into itself or a descendant", async () => {
+      const child = await insertFolder({ spaceId: everyone.id, parentId: folder.id });
+      const grandchild = await insertFolder({ spaceId: everyone.id, parentId: child.id });
+      for (const parentId of [folder.id, grandchild.id]) {
+        expectToolError(
+          await callTool(token, "update_folder", { folder_id: folder.id, parent_id: parentId }),
+          "フォルダを自分自身やその中のフォルダへは移せません",
+        );
+      }
+      expect(await readFolder(folder.id)).toEqual(folder);
+    });
+
+    it("rejects a parent in another space or an inaccessible space", async () => {
+      for (const parentId of await unusableFolders()) {
+        expectToolError(
+          await callTool(token, "update_folder", { folder_id: folder.id, parent_id: parentId }),
+          "移動先のフォルダが見つかりません",
+        );
+      }
+      expect(await readFolder(folder.id)).toEqual(folder);
+    });
+
+    it("requires a name or a parent_id", async () => {
+      expectToolError(
+        await callTool(token, "update_folder", { folder_id: folder.id }),
+        "name か parent_id のどちらかを指定してください",
+      );
+    });
+
+    it("reports folders in inaccessible spaces as missing", async () => {
+      const inAdminSpace = await insertFolder({ spaceId: adminSpace.id });
+      expectToolError(await callTool(token, "update_folder", { folder_id: inAdminSpace.id, name: "X" }), folderNotFound);
+      expect(await readFolder(inAdminSpace.id)).toEqual(inAdminSpace);
+    });
+  });
+
+  describe("delete_folder", () => {
+    it("deletes an empty folder", async () => {
+      const folder = await insertFolder({ spaceId: everyone.id });
+      const result = toolJson<{ id: string; deleted: boolean }>(
+        await callTool(token, "delete_folder", { folder_id: folder.id }),
+      );
+      expect(result).toEqual({ id: folder.id, deleted: true });
+      expect(await readFolder(folder.id)).toBeUndefined();
+      expectToolError(await callTool(token, "delete_folder", { folder_id: folder.id }), folderNotFound);
+    });
+
+    it("refuses to delete a folder with a subfolder or a page", async () => {
+      const withFolder = await insertFolder({ spaceId: everyone.id });
+      await insertFolder({ spaceId: everyone.id, parentId: withFolder.id });
+      const withPage = await insertFolder({ spaceId: everyone.id });
+      await insertPage({ spaceId: everyone.id, folderId: withPage.id });
+      for (const folder of [withFolder, withPage]) {
+        expectToolError(
+          await callTool(token, "delete_folder", { folder_id: folder.id }),
+          "中にページかフォルダがあるフォルダは削除できません。中身を移すか削除してから消してください",
+        );
+        expect(await readFolder(folder.id)).toEqual(folder);
+      }
+    });
+  });
+
+  describe("pages in folders", () => {
+    it("creates a page in a folder with create_page", async () => {
+      const folder = await insertFolder({ spaceId: everyone.id });
+      const result = toolJson<PageSummary>(
+        await callTool(token, "create_page", { space_id: everyone.id, title: "T", body: "", folder_id: folder.id }),
+      );
+      expect(result.folder_id).toBe(folder.id);
+      expect(await readPage(result.id)).toMatchObject({ folderId: folder.id });
+    });
+
+    it("rejects a folder in another space or an inaccessible space with create_page", async () => {
+      for (const folderId of await unusableFolders()) {
+        expectToolError(
+          await callTool(token, "create_page", { space_id: everyone.id, title: "T", body: "", folder_id: folderId }),
+          folderNotFound,
+        );
+      }
+      expect(await countPages()).toBe(0);
+    });
+
+    it("moves a page with update_page and back to the top level with null", async () => {
+      const folder = await insertFolder({ spaceId: everyone.id });
+      const page = await insertPage({ spaceId: everyone.id });
+      const moved = toolJson<PageSummary>(
+        await callTool(token, "update_page", { page_id: page.id, version: 1, folder_id: folder.id }),
+      );
+      expect(moved).toMatchObject({ folder_id: folder.id, version: 2 });
+      const top = toolJson<PageSummary>(
+        await callTool(token, "update_page", { page_id: page.id, version: 2, folder_id: null }),
+      );
+      expect(top).toMatchObject({ folder_id: null, version: 3 });
+    });
+
+    it("rejects a folder in another space or an inaccessible space with update_page", async () => {
+      const page = await insertPage({ spaceId: everyone.id });
+      for (const folderId of await unusableFolders()) {
+        expectToolError(
+          await callTool(token, "update_page", { page_id: page.id, version: 1, folder_id: folderId }),
+          folderNotFound,
+        );
+      }
+      expectToolError(
+        await callTool(token, "update_page", { page_id: page.id, version: 1, folder_id: "" }),
+        "folder_id はフォルダの id か null で指定してください",
+      );
+      expect(await readPage(page.id)).toEqual(page);
     });
   });
 });
