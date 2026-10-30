@@ -138,3 +138,7 @@ CookieにSecure属性と`__Host-`接頭辞を使っているため、`http://loc
 | `pnpm build:client` | Web画面を`dist/client`にビルドする |
 | `pnpm db:generate` | スキーマからマイグレーションを作る |
 | `pnpm run deploy` | 本番のD1にマイグレーションを適用してデプロイする（`pnpm deploy`はpnpm自体のコマンドなので`run`を付けてください） |
+
+## ライセンス
+
+[Apache License 2.0](LICENSE)

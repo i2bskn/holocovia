@@ -47,9 +47,20 @@ export function folderOptions(folders: Folder[], exclude?: ReadonlySet<string>):
 // A range of the body textarea, as selectionStart and selectionEnd.
 export type TextSelection = { start: number; end: number };
 
-// Puts markdown in place of the selection (at the end of the body for null), on a line of its own: a line
-// break is added before and after it unless it is at the start or end of a line. cursor is the position
-// right after the inserted text.
+// The line breaks to add at the edge of text that faces the inserted Markdown, so that a blank line is
+// between them: up to two, less those already there (matched by edge). Spaces and tabs are not counted.
+// Nothing for an empty text, and more than two are kept as they are.
+function lineBreaksToAdd(text: string, edge: RegExp): string {
+  if (text === "") return "";
+  const existing = edge.exec(text)?.[0].length ?? 0;
+  return "\n".repeat(Math.max(2 - existing, 0));
+}
+
+// Puts markdown in place of the selection (at the end of the body for null) as a paragraph of its own, so
+// that it does not become part of a list or a paragraph next to it: line breaks are added before it until
+// there is a blank line, unless it is at the start of the body, and after it likewise, unless it is at the
+// end. A list indented around it is split there. cursor is the position right after the inserted text,
+// before the line breaks added after it.
 export function insertMarkdown(
   body: string,
   selection: TextSelection | null,
@@ -59,7 +70,6 @@ export function insertMarkdown(
   const end = Math.min(Math.max(selection?.end ?? body.length, start), body.length);
   const before = body.slice(0, start);
   const after = body.slice(end);
-  const head = `${before}${before !== "" && !before.endsWith("\n") ? "\n" : ""}${markdown}`;
-  const tail = `${after !== "" && !after.startsWith("\n") ? "\n" : ""}${after}`;
-  return { body: head + tail, cursor: head.length };
+  const head = `${before}${lineBreaksToAdd(before, /\n*$/)}${markdown}`;
+  return { body: `${head}${lineBreaksToAdd(after, /^\n*/)}${after}`, cursor: head.length };
 }

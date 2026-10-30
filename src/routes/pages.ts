@@ -11,14 +11,13 @@ import type {
   UpdatePageRequest,
 } from "../api/types";
 import type { AppEnv } from "../env";
-import { createAttachment, listAttachments } from "../attachments/service";
+import { listAttachments } from "../attachments/service";
+import { receiveUpload } from "../attachments/upload";
 import {
-  ATTACHMENT_MAX_BYTES,
-  checkAttachmentContent,
   emptyFileMessage,
   fileTooLargeMessage,
   unsupportedTypeMessage,
-  withAttachmentExtension,
+  uploadFailedMessage,
 } from "../attachments/validation";
 import { apiError, requireAdmin, requireUser } from "../auth/middleware";
 import {
@@ -188,26 +187,31 @@ const pagesApi = new Hono<AppEnv>()
     return c.json(body, 200);
   })
   // Attaches a file to the page. The body is the file itself, not multipart, which would cost CPU time to
-  // parse. The type is decided from the contents; the Content-Type of the request is not used.
+  // parse. The type is decided from the contents; the Content-Type of the request is not used. See
+  // attachments/upload.ts for how the body is read.
   .post("/:id/attachments", requireUser, attachmentFilenameQuery, attachmentBodyLimit, async (c) => {
-    const bytes = new Uint8Array(await c.req.arrayBuffer());
-    const checked = checkAttachmentContent(bytes, ATTACHMENT_MAX_BYTES);
-    if (!checked.ok) {
-      switch (checked.error) {
+    const result = await receiveUpload(
+      c.get("db"),
+      c.env.ATTACHMENTS,
+      c.get("user"),
+      c.req.param("id"),
+      c.req.valid("query").filename,
+      c.req.raw,
+    );
+    if (!result.ok) {
+      switch (result.error) {
         case "empty_file":
           return apiError(c, 400, "empty_file", emptyFileMessage);
         case "file_too_large":
           return apiError(c, 413, "file_too_large", fileTooLargeMessage);
         case "unsupported_type":
           return apiError(c, 400, "unsupported_type", unsupportedTypeMessage);
+        case "upload_failed":
+          return apiError(c, 400, "upload_failed", uploadFailedMessage);
+        case "not_found":
+          return apiError(c, 404, "not_found", pageNotFoundMessage);
       }
     }
-    const result = await createAttachment(c.get("db"), c.env.ATTACHMENTS, c.get("user"), c.req.param("id"), {
-      filename: withAttachmentExtension(c.req.valid("query").filename, checked.contentType),
-      contentType: checked.contentType,
-      bytes,
-    });
-    if (!result.ok) return apiError(c, 404, "not_found", pageNotFoundMessage);
     return c.json(toApiAttachment(result.attachment), 201);
   })
   // Moves the page to the trash of its space. It can be restored for 30 days (see pages/trash.ts).

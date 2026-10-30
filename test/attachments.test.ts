@@ -3,8 +3,14 @@ import { env } from "cloudflare:workers";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Attachment, AttachmentList } from "../src/api/types";
-import { attachmentKey, createAttachment, deleteAttachment } from "../src/attachments/service";
+import {
+  attachmentKey,
+  createAttachment,
+  deleteAttachment,
+  type AttachmentContent,
+} from "../src/attachments/service";
 import { sweepOrphanAttachments } from "../src/attachments/sweep";
+import { chooseUploadPath, readHead, receiveUpload } from "../src/attachments/upload";
 import {
   ATTACHMENT_MAX_BYTES,
   decodeBase64,
@@ -48,6 +54,44 @@ function pngOfSize(size: number): Uint8Array {
   return bytes;
 }
 
+// The bytes as a stream of chunks of chunkSize, as a body arrives over the network. calls counts what the
+// reader did.
+function streamOf(
+  bytes: Uint8Array,
+  chunkSize = bytes.byteLength,
+  calls: { pulls: number; canceled: boolean } = { pulls: 0, canceled: false },
+): ReadableStream<Uint8Array> {
+  let offset = 0;
+  return new ReadableStream<Uint8Array>({
+    pull(controller) {
+      calls.pulls++;
+      if (offset >= bytes.byteLength) {
+        controller.close();
+        return;
+      }
+      controller.enqueue(bytes.slice(offset, offset + chunkSize));
+      offset += chunkSize;
+    },
+    cancel() {
+      calls.canceled = true;
+    },
+  });
+}
+
+// The stream of a known length that createAttachment takes, as receiveUpload makes it.
+function fixedLength(stream: ReadableStream<Uint8Array>, length: number): ReadableStream<Uint8Array> {
+  return stream.pipeThrough(new FixedLengthStream(length));
+}
+
+// A stream whose first read fails, as when the client goes away.
+function failingStream(): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    pull(controller) {
+      controller.error(new Error("connection lost"));
+    },
+  });
+}
+
 function setNow(now: number) {
   vi.spyOn(clock, "now").mockReturnValue(now);
 }
@@ -74,6 +118,27 @@ async function errorOf(res: Response): Promise<{ code: string; message: string }
 function upload(pageId: string, cookies: SessionCookies, body: BodyInit, filename: string | null = "file"): Promise<Response> {
   const query = filename === null ? "" : `?filename=${encodeURIComponent(filename)}`;
   return send(`/api/v1/pages/${pageId}/attachments${query}`, { cookies, body });
+}
+
+// Sends Content-Length explicitly: a Request built in workerd does not add it from the body, so upload()
+// takes the path without it (see attachments/upload.ts). workerd keeps a Content-Length set by hand, and
+// does not check it against the body.
+function uploadWithLength(
+  pageId: string,
+  cookies: SessionCookies,
+  body: BodyInit,
+  length: number | string,
+  filename = "file",
+): Promise<Response> {
+  return send(`/api/v1/pages/${pageId}/attachments?filename=${encodeURIComponent(filename)}`, {
+    cookies,
+    body,
+    headers: { "Content-Length": String(length) },
+  });
+}
+
+function spyOnUploadLog() {
+  return vi.spyOn(console, "log").mockImplementation(() => {});
 }
 
 async function uploadOk(pageId: string, cookies: SessionCookies, body: Uint8Array, filename = "file"): Promise<Attachment> {
@@ -358,9 +423,11 @@ describe("REST API", () => {
         controller.close();
       },
     });
+    const log = spyOnUploadLog();
     const res = await upload(page.id, memberCookies, body, "stream");
     expect(res.status).toBe(201);
     expect(((await res.json()) as Attachment).size).toBe(PNG.byteLength);
+    expect(log).toHaveBeenCalledWith("attachment uploaded", { path: "bytes", size: PNG.byteLength, contentType: "image/png" });
   });
 
   it("accepts exactly 10MB and rejects more with 413", async () => {
@@ -466,6 +533,265 @@ describe("REST API", () => {
   });
 });
 
+describe("upload with Content-Length", () => {
+  // The path of browsers: the body goes to R2 as a stream (see attachments/upload.ts). Every test checks the
+  // log of the path, so that none of them passes through the path without Content-Length unnoticed.
+
+  it.each([
+    ["PNG", PNG, "image/png"],
+    ["PDF", PDF, "application/pdf"],
+  ])("uploads %s as a stream and serves the same bytes", async (_, bytes, contentType) => {
+    const page = await insertPage({ spaceId: everyone.id });
+    const log = spyOnUploadLog();
+    const res = await uploadWithLength(page.id, memberCookies, bytes, bytes.byteLength);
+    expect(res.status).toBe(201);
+    const created = (await res.json()) as Attachment;
+    expect(created.size).toBe(bytes.byteLength);
+    expect(created.content_type).toBe(contentType);
+    expect(log).toHaveBeenCalledWith("attachment uploaded", { path: "stream", size: bytes.byteLength, contentType });
+    expect((await env.ATTACHMENTS.get(attachmentKey(created.id)))?.httpMetadata?.contentType).toBe(contentType);
+    const contents = await getContents(created.id, memberCookies);
+    expect(new Uint8Array(await contents.arrayBuffer())).toEqual(bytes);
+  });
+
+  it.each([1, 5, 11])("decides the type from a body that arrives in chunks of %i bytes", async (chunkSize) => {
+    const page = await insertPage({ spaceId: everyone.id });
+    const log = spyOnUploadLog();
+    const res = await uploadWithLength(page.id, memberCookies, streamOf(WEBP, chunkSize), WEBP.byteLength);
+    expect(res.status).toBe(201);
+    const created = (await res.json()) as Attachment;
+    expect(created.content_type).toBe("image/webp");
+    expect(log).toHaveBeenCalledWith("attachment uploaded", {
+      path: "stream",
+      size: WEBP.byteLength,
+      contentType: "image/webp",
+    });
+    const contents = await getContents(created.id, memberCookies);
+    expect(new Uint8Array(await contents.arrayBuffer())).toEqual(WEBP);
+  });
+
+  it("passes a large body through in chunks", async () => {
+    const page = await insertPage({ spaceId: everyone.id });
+    const bytes = pngOfSize(3 * 1024 * 1024 + 1);
+    bytes[bytes.byteLength - 1] = 0x7f;
+    const log = spyOnUploadLog();
+    const res = await uploadWithLength(page.id, memberCookies, streamOf(bytes, 64 * 1024), bytes.byteLength);
+    expect(res.status).toBe(201);
+    const created = (await res.json()) as Attachment;
+    expect(created.size).toBe(bytes.byteLength);
+    expect(log).toHaveBeenCalledWith("attachment uploaded", { path: "stream", size: bytes.byteLength, contentType: "image/png" });
+    const contents = await getContents(created.id, memberCookies);
+    expect(new Uint8Array(await contents.arrayBuffer())).toEqual(bytes);
+  });
+
+  it("rejects a type it does not accept and leaves no object", async () => {
+    const page = await insertPage({ spaceId: everyone.id });
+    const log = spyOnUploadLog();
+    const svg = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"></svg>');
+    const res = await uploadWithLength(page.id, memberCookies, streamOf(svg, 4), svg.byteLength);
+    expect(res.status).toBe(400);
+    expect(await errorOf(res)).toEqual({
+      code: "unsupported_type",
+      message: "添付できるのは PNG・JPEG・GIF・WebP の画像と PDF です",
+    });
+    expect(await objectKeys()).toEqual([]);
+    expect(log).not.toHaveBeenCalled();
+  });
+
+  it("rejects Content-Length 0 as an empty file", async () => {
+    const page = await insertPage({ spaceId: everyone.id });
+    const res = await uploadWithLength(page.id, memberCookies, new Uint8Array(), 0);
+    expect(res.status).toBe(400);
+    expect(await errorOf(res)).toEqual({ code: "empty_file", message: "空のファイルは添付できません" });
+  });
+
+  it("rejects a Content-Length over 10MB without reading the body", async () => {
+    const page = await insertPage({ spaceId: everyone.id });
+    const res = await uploadWithLength(page.id, memberCookies, PNG, ATTACHMENT_MAX_BYTES + 1);
+    expect(res.status).toBe(413);
+    expect((await errorOf(res)).code).toBe("file_too_large");
+    expect(await objectKeys()).toEqual([]);
+  });
+
+  it("rejects a Content-Length that is not only digits", async () => {
+    const page = await insertPage({ spaceId: everyone.id });
+    // bodyLimit reads it with parseInt as 12 and lets it through.
+    const res = await uploadWithLength(page.id, memberCookies, PNG, "12abc");
+    expect(res.status).toBe(400);
+    expect(await errorOf(res)).toEqual({ code: "upload_failed", message: "ファイルを受け取れませんでした" });
+    expect(await objectKeys()).toEqual([]);
+  });
+
+  it("returns 404 for a page in the trash and leaves no object", async () => {
+    const page = await insertPage({ spaceId: everyone.id, deletedAt: T0, deletedBy: member.id });
+    const log = spyOnUploadLog();
+    const res = await uploadWithLength(page.id, memberCookies, streamOf(PNG, 3), PNG.byteLength);
+    expect(res.status).toBe(404);
+    expect(await errorOf(res)).toEqual({ code: "not_found", message: "ページが見つかりません" });
+    expect(await objectKeys()).toEqual([]);
+    expect(log).not.toHaveBeenCalled();
+  });
+});
+
+describe("receiveUpload", () => {
+  // Called directly, with headers that bodyLimit would not let through or that send() cannot make.
+
+  function request(body: BodyInit | null, headers: Record<string, string>): Request {
+    return new Request("https://example.com/", { method: "POST", body, headers });
+  }
+
+  function receive(req: Request, pageId: string) {
+    return receiveUpload(db, env.ATTACHMENTS, member, pageId, "file", req);
+  }
+
+  it("streams a body with Content-Length", async () => {
+    const page = await insertPage({ spaceId: everyone.id });
+    const log = spyOnUploadLog();
+    const result = await receive(request(streamOf(GIF89A, 2), { "Content-Length": String(GIF89A.byteLength) }), page.id);
+    expect(result).toMatchObject({ ok: true, attachment: { filename: "file.gif", size: GIF89A.byteLength } });
+    expect(log).toHaveBeenCalledWith("attachment uploaded", {
+      path: "stream",
+      size: GIF89A.byteLength,
+      contentType: "image/gif",
+    });
+  });
+
+  it.each([
+    ["a Content-Length over 10MB", { "Content-Length": String(ATTACHMENT_MAX_BYTES + 1) }, "file_too_large"],
+    ["Content-Length 0", { "Content-Length": "0" }, "empty_file"],
+    ["Content-Length with letters", { "Content-Length": "12abc" }, "upload_failed"],
+    ["a negative Content-Length", { "Content-Length": "-1" }, "upload_failed"],
+    ["a blank Content-Length", { "Content-Length": " " }, "upload_failed"],
+  ])("rejects %s", async (_, headers, error) => {
+    const page = await insertPage({ spaceId: everyone.id });
+    expect(await receive(request(PNG, headers), page.id)).toEqual({ ok: false, error });
+    expect(await objectKeys()).toEqual([]);
+  });
+
+  it("accepts Content-Length with spaces around it", async () => {
+    const page = await insertPage({ spaceId: everyone.id });
+    const result = await receive(request(PNG, { "Content-Length": ` ${PNG.byteLength} ` }), page.id);
+    expect(result).toMatchObject({ ok: true, attachment: { size: PNG.byteLength } });
+  });
+
+  it("fails without a body when Content-Length is not 0", async () => {
+    const page = await insertPage({ spaceId: everyone.id });
+    expect(await receive(request(null, { "Content-Length": "12" }), page.id)).toEqual({ ok: false, error: "upload_failed" });
+  });
+
+  it("fails when the first bytes cannot be read, and leaves no object", async () => {
+    const page = await insertPage({ spaceId: everyone.id });
+    expect(await receive(request(failingStream(), { "Content-Length": "12" }), page.id)).toEqual({
+      ok: false,
+      error: "upload_failed",
+    });
+    expect(await objectKeys()).toEqual([]);
+  });
+
+  it("rejects a type it does not accept", async () => {
+    const page = await insertPage({ spaceId: everyone.id });
+    const html = new TextEncoder().encode("<!doctype html><script>alert(1)</script>");
+    // Whether the body is canceled cannot be seen here: workerd does not pass cancel() of the readable side
+    // of a FixedLengthStream on to a stream made in JS.
+    const result = await receive(request(streamOf(html, 4), { "Content-Length": String(html.byteLength) }), page.id);
+    expect(result).toEqual({ ok: false, error: "unsupported_type" });
+    expect(await objectKeys()).toEqual([]);
+  });
+
+  it("throws and writes nothing when the body is shorter than Content-Length", async () => {
+    const page = await insertPage({ spaceId: everyone.id });
+    const req = request(streamOf(PNG, 4), { "Content-Length": String(PNG.byteLength + 1) });
+    await expect(receive(req, page.id)).rejects.toThrow();
+    expect(await countAttachmentRows()).toBe(0);
+    expect(await objectKeys()).toEqual([]);
+  });
+
+  it("reads the body as bytes with Transfer-Encoding, as bodyLimit does", async () => {
+    const page = await insertPage({ spaceId: everyone.id });
+    const log = spyOnUploadLog();
+    const req = request(PNG, { "Content-Length": String(PNG.byteLength), "Transfer-Encoding": "chunked" });
+    expect(await receive(req, page.id)).toMatchObject({ ok: true });
+    expect(log).toHaveBeenCalledWith("attachment uploaded", { path: "bytes", size: PNG.byteLength, contentType: "image/png" });
+  });
+
+  it("chooses the path as bodyLimit does", () => {
+    expect(chooseUploadPath(new Headers({ "Content-Length": "1" }))).toBe("stream");
+    expect(chooseUploadPath(new Headers())).toBe("buffer");
+    expect(chooseUploadPath(new Headers({ "Content-Length": "1", "Transfer-Encoding": "chunked" }))).toBe("buffer");
+    expect(chooseUploadPath(new Headers({ "Transfer-Encoding": "chunked" }))).toBe("buffer");
+  });
+});
+
+describe("readHead", () => {
+  it("joins chunks until it has enough, then cancels the reader", async () => {
+    const calls = { pulls: 0, canceled: false };
+    const { head } = await readHead(streamOf(WEBP, 1, calls), 12);
+    expect(head).toEqual(WEBP.subarray(0, 12));
+    expect(calls.pulls).toBeLessThanOrEqual(13);
+    expect(calls.canceled).toBe(true);
+  });
+
+  it("returns a first chunk that is long enough as it is", async () => {
+    const { head } = await readHead(streamOf(PDF), 12);
+    expect(head).toEqual(PDF);
+  });
+
+  it("returns what there is when the stream ends first", async () => {
+    const { head } = await readHead(streamOf(JPEG, 2), 12);
+    expect(head).toEqual(JPEG);
+    expect((await readHead(streamOf(new Uint8Array()), 12)).head).toEqual(new Uint8Array());
+  });
+
+  it("rejects with the error of the stream", async () => {
+    await expect(readHead(failingStream(), 12)).rejects.toThrow("connection lost");
+  });
+});
+
+describe("createAttachment with a stream", () => {
+  it("cancels the stream when the page is not found", async () => {
+    const page = await insertPage({ spaceId: everyone.id, deletedAt: T0, deletedBy: member.id });
+    const calls = { pulls: 0, canceled: false };
+    const result = await createAttachment(db, env.ATTACHMENTS, member, page.id, {
+      filename: "a.png",
+      contentType: "image/png",
+      content: { kind: "stream", stream: streamOf(PNG, 4, calls) },
+    });
+    expect(result).toEqual({ ok: false, error: "not_found" });
+    expect(calls.canceled).toBe(true);
+    expect(await objectKeys()).toEqual([]);
+  });
+
+  it("cancels the stream and rethrows when the page cannot be read", async () => {
+    const page = await insertPage({ spaceId: everyone.id });
+    const failing = dbChangingBefore(/^select .* from "pages"/i, () => Promise.reject(new Error("D1 is down")));
+    const calls = { pulls: 0, canceled: false };
+    await expect(
+      createAttachment(failing, env.ATTACHMENTS, member, page.id, {
+        filename: "a.png",
+        contentType: "image/png",
+        content: { kind: "stream", stream: streamOf(PNG, 4, calls) },
+      }),
+    ).rejects.toMatchObject({ cause: new Error("D1 is down") });
+    expect(calls.canceled).toBe(true);
+  });
+
+  it("keeps the result when the stream cannot be canceled", async () => {
+    const page = await insertPage({ spaceId: everyone.id, deletedAt: T0, deletedBy: member.id });
+    const stream = failingStream();
+    // Errored by the first read: cancel() rejects.
+    const reader = stream.getReader();
+    await reader.read().catch(() => {});
+    reader.releaseLock();
+    await expect(stream.cancel()).rejects.toThrow("connection lost");
+    const result = await createAttachment(db, env.ATTACHMENTS, member, page.id, {
+      filename: "a.png",
+      contentType: "image/png",
+      content: { kind: "stream", stream },
+    });
+    expect(result).toEqual({ ok: false, error: "not_found" });
+  });
+});
+
 describe("access", () => {
   it("hides the attachments of another user's personal space", async () => {
     const own = await insertPage({ spaceId: (await personalSpaceOf(admin)).id });
@@ -549,7 +875,10 @@ describe("access", () => {
 });
 
 describe("changes between the check and the write", () => {
-  it("writes no row and deletes the object when the page moves to the trash before the insert", async () => {
+  it.each([
+    ["bytes", (): AttachmentContent => ({ kind: "bytes", bytes: PNG })],
+    ["a stream", (): AttachmentContent => ({ kind: "stream", stream: fixedLength(streamOf(PNG, 5), PNG.byteLength) })],
+  ])("writes no row and deletes the object when the page moves to the trash before the insert, for %s", async (_, content) => {
     const page = await insertPage({ spaceId: everyone.id });
     const changing = dbChangingBefore(/^insert into "attachments"/i, () =>
       db.update(pages).set({ deletedAt: T0, deletedBy: member.id }).where(eq(pages.id, page.id)).run(),
@@ -557,7 +886,7 @@ describe("changes between the check and the write", () => {
     const result = await createAttachment(changing, env.ATTACHMENTS, member, page.id, {
       filename: "a.png",
       contentType: "image/png",
-      bytes: PNG,
+      content: content(),
     });
     expect(result).toEqual({ ok: false, error: "not_found" });
     expect(await countAttachmentRows()).toBe(0);
@@ -573,7 +902,7 @@ describe("changes between the check and the write", () => {
     const result = await createAttachment(changing, env.ATTACHMENTS, member, page.id, {
       filename: "a.png",
       contentType: "image/png",
-      bytes: PNG,
+      content: { kind: "bytes", bytes: PNG },
     });
     expect(result).toEqual({ ok: false, error: "not_found" });
     expect(await objectKeys()).toEqual([]);
@@ -583,7 +912,11 @@ describe("changes between the check and the write", () => {
     const page = await insertPage({ spaceId: everyone.id });
     const failing = dbChangingBefore(/^insert into "attachments"/i, () => Promise.reject(new Error("D1 is down")));
     await expect(
-      createAttachment(failing, env.ATTACHMENTS, member, page.id, { filename: "a.png", contentType: "image/png", bytes: PNG }),
+      createAttachment(failing, env.ATTACHMENTS, member, page.id, {
+        filename: "a.png",
+        contentType: "image/png",
+        content: { kind: "bytes", bytes: PNG },
+      }),
     ).rejects.toMatchObject({ cause: new Error("D1 is down") });
     expect(await objectKeys()).toEqual([]);
   });

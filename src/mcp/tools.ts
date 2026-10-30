@@ -591,7 +591,7 @@ export function registerTools(server: McpServer, { db, user, attachments }: Tool
         const result = await createAttachment(db, attachments, user, page_id, {
           filename: withAttachmentExtension(normalizedFilename, checked.contentType),
           contentType: checked.contentType,
-          bytes,
+          content: { kind: "bytes", bytes },
         });
         if (!result.ok) return errorResult(pageNotFoundMessage);
         return jsonResult(toApiAttachment(result.attachment));

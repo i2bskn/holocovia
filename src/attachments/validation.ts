@@ -41,6 +41,7 @@ export const attachmentNotFoundMessage = "添付ファイルが見つかりま�
 export const unsupportedTypeMessage = "添付できるのは PNG・JPEG・GIF・WebP の画像と PDF です";
 export const emptyFileMessage = "空のファイルは添付できません";
 export const fileTooLargeMessage = "添付できるファイルは 10MB までです";
+export const uploadFailedMessage = "ファイルを受け取れませんでした";
 export const mcpFileTooLargeMessage =
   "MCP から添付できるファイルは 2MB までです。大きなファイルは Web の編集画面から添付してください";
 export const invalidFilenameMessage = "ファイル名は 1 文字以上 250 文字以下にしてください";

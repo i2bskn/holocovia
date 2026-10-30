@@ -29,14 +29,46 @@ async function deleteObject(bucket: R2Bucket, id: string): Promise<void> {
   }
 }
 
+// The contents: bytes already read (MCP, and REST without Content-Length), or the request body, which is
+// passed to R2 without being read in JS. R2 takes only a stream of a known length: the readable side of a
+// FixedLengthStream, or a branch of tee() of it (see upload.ts).
+export type AttachmentContent =
+  | { kind: "bytes"; bytes: Uint8Array }
+  | { kind: "stream"; stream: ReadableStream<Uint8Array> };
+
 export type CreateAttachmentInput = {
   // Normalized, with the extension of contentType.
   filename: string;
   contentType: AttachmentContentType;
-  bytes: Uint8Array;
+  content: AttachmentContent;
 };
 
 export type CreateAttachmentResult = { ok: true; attachment: AttachmentRow } | { ok: false; error: "not_found" };
+
+// Checks the page and puts the contents in R2 under a new ID. Returns null if the page is not accessible.
+// A stream belongs to this function from the call: it is canceled unless it has been handed to R2.
+async function putContent(
+  db: Db,
+  bucket: R2Bucket,
+  user: UserRow,
+  pageId: string,
+  input: CreateAttachmentInput,
+): Promise<{ page: PageRow; id: string; size: number } | null> {
+  const { content } = input;
+  let handedOver = false;
+  try {
+    const page = await findAccessiblePage(db, user, pageId);
+    if (!page) return null;
+    const id = crypto.randomUUID();
+    handedOver = true;
+    const value = content.kind === "bytes" ? content.bytes : content.stream;
+    const object = await bucket.put(attachmentKey(id), value, { httpMetadata: { contentType: input.contentType } });
+    return { page, id, size: content.kind === "bytes" ? content.bytes.byteLength : object.size };
+  } finally {
+    // cancel() rejects on a stream that has errored, which must not replace the result or the error.
+    if (!handedOver && content.kind === "stream") await content.stream.cancel().catch(() => {});
+  }
+}
 
 // Puts the contents in R2 first, then writes the row, so that there is never a row without an object.
 // An object whose row is not written is deleted; one left by a Worker that stopped in between is deleted
@@ -48,11 +80,9 @@ export async function createAttachment(
   pageId: string,
   input: CreateAttachmentInput,
 ): Promise<CreateAttachmentResult> {
-  const page = await findAccessiblePage(db, user, pageId);
-  if (!page) return { ok: false, error: "not_found" };
-
-  const id = crypto.randomUUID();
-  await bucket.put(attachmentKey(id), input.bytes, { httpMetadata: { contentType: input.contentType } });
+  const put = await putContent(db, bucket, user, pageId, input);
+  if (!put) return { ok: false, error: "not_found" };
+  const { page, id, size } = put;
 
   // One conditional INSERT ... SELECT, so that a page moved to the trash or to another space after the
   // check above gets nothing. drizzle checks that the keys are those of the table, in the same order.
@@ -67,7 +97,7 @@ export async function createAttachment(
             pageId: sql<string>`${page.id}`.as("page_id"),
             filename: sql<string>`${input.filename}`.as("filename"),
             contentType: sql<AttachmentContentType>`${input.contentType}`.as("content_type"),
-            size: sql<number>`${input.bytes.byteLength}`.as("size"),
+            size: sql<number>`${size}`.as("size"),
             createdBy: sql<string>`${user.id}`.as("created_by"),
             createdAt: sql<number>`${clock.now()}`.as("created_at"),
           })
@@ -82,7 +112,11 @@ export async function createAttachment(
     if (isForeignKeyViolation(error)) return { ok: false, error: "not_found" };
     throw error;
   }
-  if (attachment) return { ok: true, attachment };
+  if (attachment) {
+    // Which path the contents took, to check the CPU time of each in production. No ID or name.
+    console.log("attachment uploaded", { path: input.content.kind, size, contentType: input.contentType });
+    return { ok: true, attachment };
+  }
   await deleteObject(bucket, id);
   return { ok: false, error: "not_found" };
 }

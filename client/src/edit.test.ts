@@ -121,23 +121,33 @@ describe("insertMarkdown", () => {
 
   it.each([
     ["at the end of an empty body", "", null, `${md}`],
-    ["at the end without a selection", "text", null, `text\n${md}`],
-    ["at the end after a line break", "text\n", null, `text\n${md}`],
-    ["at the start of a line", "one\ntwo", { start: 4, end: 4 }, `one\n${md}\ntwo`],
-    ["in the middle of a line", "onetwo", { start: 3, end: 3 }, `one\n${md}\ntwo`],
-    ["at the end of a line", "one\ntwo", { start: 3, end: 3 }, `one\n${md}\ntwo`],
-    ["at the start of the body", "one", { start: 0, end: 0 }, `${md}\none`],
-    ["in place of the selection", "one TWO three", { start: 4, end: 7 }, `one \n${md}\n three`],
-    ["in place of whole lines", "one\ntwo\nthree", { start: 4, end: 7 }, `one\n${md}\nthree`],
-    ["at the end for a selection past it", "one", { start: 10, end: 12 }, `one\n${md}`],
+    ["in an empty body with a selection", "", { start: 0, end: 0 }, `${md}`],
+    ["at the end without a selection", "text", null, `text\n\n${md}`],
+    ["at the end after a line break", "text\n", null, `text\n\n${md}`],
+    ["at the end after a blank line", "text\n\n", null, `text\n\n${md}`],
+    ["at the end after more than one blank line", "text\n\n\n", null, `text\n\n\n${md}`],
+    ["right after a list", "- 作成元: x", null, `- 作成元: x\n\n${md}`],
+    ["after a list ending with a line break", "- a\n- b\n", null, `- a\n- b\n\n${md}`],
+    ["at the start of a line", "one\ntwo", { start: 4, end: 4 }, `one\n\n${md}\n\ntwo`],
+    ["in the middle of a paragraph", "onetwo", { start: 3, end: 3 }, `one\n\n${md}\n\ntwo`],
+    ["at the end of a line", "one\ntwo", { start: 3, end: 3 }, `one\n\n${md}\n\ntwo`],
+    ["between paragraphs", "one\n\ntwo", { start: 5, end: 5 }, `one\n\n${md}\n\ntwo`],
+    ["at the start of the body", "one", { start: 0, end: 0 }, `${md}\n\none`],
+    ["at the start before blank lines", "\n\n\none", { start: 0, end: 0 }, `${md}\n\n\none`],
+    ["in place of the selection", "one TWO three", { start: 4, end: 7 }, `one \n\n${md}\n\n three`],
+    ["in place of whole lines", "one\ntwo\nthree", { start: 4, end: 7 }, `one\n\n${md}\n\nthree`],
+    ["at the end for a selection past it", "one", { start: 10, end: 12 }, `one\n\n${md}`],
+    ["after a line of spaces, not counting them", "a\n \n", null, `a\n \n\n${md}`],
+    ["after only a line break", "\n", null, `\n\n${md}`],
+    ["after only spaces", "  ", null, `  \n\n${md}`],
   ])("inserts %s", (_, body, selection, expected) => {
     expect(insertMarkdown(body, selection, md).body).toBe(expected);
   });
 
-  it("returns the position right after the inserted text", () => {
+  it("returns the position right after the inserted text, before the line breaks added after it", () => {
     const first = insertMarkdown("onetwo", { start: 3, end: 3 }, "A");
-    expect(first).toEqual({ body: "one\nA\ntwo", cursor: 5 });
+    expect(first).toEqual({ body: "one\n\nA\n\ntwo", cursor: 6 });
     const second = insertMarkdown(first.body, { start: first.cursor, end: first.cursor }, "B");
-    expect(second.body).toBe("one\nA\nB\ntwo");
+    expect(second.body).toBe("one\n\nA\n\nB\n\ntwo");
   });
 });
