@@ -370,7 +370,7 @@ describe("POST /authorize", () => {
 });
 
 describe("MCP", () => {
-  it("initializes and lists the sixteen tools with their annotations", async () => {
+  it("initializes and lists the eighteen tools with their annotations", async () => {
     const { access_token } = await authorizeClient(memberCookies);
     const init = await mcpRequest(access_token, "initialize", {
       protocolVersion: "2025-06-18",
@@ -398,6 +398,8 @@ describe("MCP", () => {
       "list_pages",
       "list_spaces",
       "list_trash",
+      "move_folder",
+      "move_page",
       "restore_page",
       "restore_page_revision",
       "search_pages",
@@ -424,6 +426,8 @@ describe("MCP", () => {
       delete_page: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
       list_trash: readOnly,
       restore_page: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      move_page: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+      move_folder: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     });
   });
 
@@ -1292,6 +1296,215 @@ describe("MCP trash tools", () => {
         expectToolError(await callTool(token, "restore_page", { page_id: pageId }), pageNotFound);
       }
       expect(await readPage(adminPage.id)).toEqual(adminPage);
+    });
+  });
+});
+
+describe("MCP move tools", () => {
+  const spaceNotFound = "移動先のスペースが見つかりません";
+
+  let token: string;
+  let everyone: SpaceRow;
+  let other: SpaceRow;
+  let adminSpace: SpaceRow;
+  let personal: SpaceRow;
+
+  beforeEach(async () => {
+    token = (await authorizeClient(memberCookies)).access_token;
+    everyone = await insertSpace("everyone", "Everyone");
+    other = await insertSpace("everyone", "Other");
+    adminSpace = await insertSpace("admin", "Admins");
+    personal = await personalSpaceOf(member);
+  });
+
+  function readPage(id: string): Promise<PageRow | undefined> {
+    return db.query.pages.findFirst({ where: eq(pages.id, id) });
+  }
+
+  function readFolder(id: string): Promise<FolderRow | undefined> {
+    return db.query.folders.findFirst({ where: eq(folders.id, id) });
+  }
+
+  function widerMessage(destName: string, to: string, from: string): string {
+    return (
+      `移動先のスペース「${destName}」（${to}）は、移動元（${from}）より多くの人が見られます。` +
+      "ページの過去の版（履歴）も見られるようになります。" +
+      "利用者に確認してから acknowledge_wider_visibility: true を付けて呼んでください"
+    );
+  }
+
+  describe("move_page", () => {
+    it("moves a page to a folder of another space and returns it without the body", async () => {
+      const page = await insertPage({ spaceId: everyone.id, body: "# Body" });
+      const folder = await insertFolder({ spaceId: other.id });
+      const result = toolJson<PageSummary>(
+        await callTool(token, "move_page", { page_id: page.id, version: 1, space_id: other.id, folder_id: folder.id }),
+      );
+      expect(result).toMatchObject({ id: page.id, space_id: other.id, folder_id: folder.id, version: 2 });
+      expect(result).not.toHaveProperty("body");
+      expect(await readPage(page.id)).toMatchObject({ spaceId: other.id, folderId: folder.id, version: 2 });
+    });
+
+    it("needs the acknowledgement to move a page to a space more people can see", async () => {
+      const page = await insertPage({ spaceId: personal.id });
+      const message = widerMessage("Everyone", "全員", "個人（本人のみ）");
+      expectToolError(await callTool(token, "move_page", { page_id: page.id, version: 1, space_id: everyone.id }), message);
+      expectToolError(
+        await callTool(token, "move_page", {
+          page_id: page.id,
+          version: 1,
+          space_id: everyone.id,
+          acknowledge_wider_visibility: false,
+        }),
+        message,
+      );
+      expect(await readPage(page.id)).toEqual(page);
+
+      const moved = toolJson<PageSummary>(
+        await callTool(token, "move_page", {
+          page_id: page.id,
+          version: 1,
+          space_id: everyone.id,
+          acknowledge_wider_visibility: true,
+        }),
+      );
+      expect(moved).toMatchObject({ space_id: everyone.id, version: 2 });
+    });
+
+    it("names the kinds of an admin space in the message", async () => {
+      const adminToken = (await authorizeClient(adminCookies)).access_token;
+      const page = await insertPage({ spaceId: (await personalSpaceOf(admin)).id });
+      expectToolError(
+        await callTool(adminToken, "move_page", { page_id: page.id, version: 1, space_id: adminSpace.id }),
+        widerMessage("Admins", "管理者のみ", "個人（本人のみ）"),
+      );
+      const adminPage = await insertPage({ spaceId: adminSpace.id });
+      expectToolError(
+        await callTool(adminToken, "move_page", { page_id: adminPage.id, version: 1, space_id: everyone.id }),
+        widerMessage("Everyone", "全員", "管理者のみ"),
+      );
+    });
+
+    it("needs no acknowledgement for a move that does not widen the visibility", async () => {
+      const page = await insertPage({ spaceId: everyone.id });
+      expect(
+        toolJson<PageSummary>(await callTool(token, "move_page", { page_id: page.id, version: 1, space_id: other.id })),
+      ).toMatchObject({ space_id: other.id });
+      // Narrowing: only the user can see it now.
+      expect(
+        toolJson<PageSummary>(
+          await callTool(token, "move_page", { page_id: page.id, version: 2, space_id: personal.id, folder_id: null }),
+        ),
+      ).toMatchObject({ space_id: personal.id, version: 3 });
+    });
+
+    it("reports a destination the user cannot access before the visibility", async () => {
+      const page = await insertPage({ spaceId: personal.id });
+      for (const spaceId of [adminSpace.id, (await personalSpaceOf(admin)).id, "missing"]) {
+        expectToolError(
+          await callTool(token, "move_page", { page_id: page.id, version: 1, space_id: spaceId }),
+          spaceNotFound,
+        );
+      }
+      expect(await readPage(page.id)).toEqual(page);
+    });
+
+    it("reports a missing page, a folder outside the destination and a conflict", async () => {
+      const page = await insertPage({ spaceId: everyone.id });
+      const inSource = await insertFolder({ spaceId: everyone.id });
+      expectToolError(
+        await callTool(token, "move_page", { page_id: "missing", version: 1, space_id: other.id }),
+        "ページが見つかりません",
+      );
+      expectToolError(
+        await callTool(token, "move_page", { page_id: page.id, version: 1, space_id: other.id, folder_id: inSource.id }),
+        "移動先のフォルダが見つかりません",
+      );
+      const conflict = await callTool(token, "move_page", { page_id: page.id, version: 2, space_id: other.id });
+      expect(conflict.isError).toBe(true);
+      expect(conflict.content[0]?.text).toContain("get_page で最新の version を取得してから move_page を呼んでください");
+      expectToolError(
+        await callTool(token, "move_page", { page_id: page.id, version: 1, space_id: "" }),
+        "space_id は移動先のスペースの id で指定してください",
+      );
+      expect(await readPage(page.id)).toEqual(page);
+    });
+  });
+
+  describe("move_folder", () => {
+    it("moves a folder with its contents to another space", async () => {
+      const folder = await insertFolder({ spaceId: everyone.id });
+      const child = await insertFolder({ spaceId: everyone.id, parentId: folder.id });
+      const page = await insertPage({ spaceId: everyone.id, folderId: child.id });
+      const result = toolJson<Folder>(await callTool(token, "move_folder", { folder_id: folder.id, space_id: other.id }));
+      expect(result).toMatchObject({ id: folder.id, space_id: other.id, parent_id: null });
+      expect(await readFolder(child.id)).toMatchObject({ spaceId: other.id, parentId: folder.id });
+      expect(await readPage(page.id)).toMatchObject({ spaceId: other.id, folderId: child.id, version: 1 });
+    });
+
+    it("needs the acknowledgement to move a folder to a space more people can see", async () => {
+      const folder = await insertFolder({ spaceId: personal.id });
+      const target = await insertFolder({ spaceId: everyone.id });
+      const page = await insertPage({ spaceId: personal.id, folderId: folder.id });
+      const trashed = await insertPage({
+        spaceId: personal.id,
+        folderId: folder.id,
+        deletedAt: Date.now(),
+        deletedBy: member.id,
+      });
+      const message = widerMessage("Everyone", "全員", "個人（本人のみ）");
+      for (const ack of [undefined, false]) {
+        expectToolError(
+          await callTool(token, "move_folder", {
+            folder_id: folder.id,
+            space_id: everyone.id,
+            parent_id: target.id,
+            ...(ack !== undefined && { acknowledge_wider_visibility: ack }),
+          }),
+          message,
+        );
+      }
+      expect(await readFolder(folder.id)).toEqual(folder);
+      expect(await readPage(page.id)).toEqual(page);
+      expect(await readPage(trashed.id)).toEqual(trashed);
+
+      const moved = toolJson<Folder>(
+        await callTool(token, "move_folder", {
+          folder_id: folder.id,
+          space_id: everyone.id,
+          parent_id: target.id,
+          acknowledge_wider_visibility: true,
+        }),
+      );
+      expect(moved).toMatchObject({ space_id: everyone.id, parent_id: target.id });
+      expect(await readPage(page.id)).toMatchObject({ spaceId: everyone.id });
+      expect(await readPage(trashed.id)).toMatchObject({ spaceId: everyone.id, deletedBy: member.id });
+    });
+
+    it("reports a destination the user cannot access before the visibility", async () => {
+      const folder = await insertFolder({ spaceId: personal.id });
+      for (const spaceId of [adminSpace.id, (await personalSpaceOf(admin)).id, "missing"]) {
+        expectToolError(await callTool(token, "move_folder", { folder_id: folder.id, space_id: spaceId }), spaceNotFound);
+      }
+      expect(await readFolder(folder.id)).toEqual(folder);
+    });
+
+    it("reports a missing folder, a parent outside the destination and a cycle", async () => {
+      const folder = await insertFolder({ spaceId: everyone.id });
+      const child = await insertFolder({ spaceId: everyone.id, parentId: folder.id });
+      expectToolError(
+        await callTool(token, "move_folder", { folder_id: "missing", space_id: other.id }),
+        "フォルダが見つかりません",
+      );
+      expectToolError(
+        await callTool(token, "move_folder", { folder_id: folder.id, space_id: other.id, parent_id: child.id }),
+        "移動先のフォルダが見つかりません",
+      );
+      expectToolError(
+        await callTool(token, "move_folder", { folder_id: folder.id, space_id: everyone.id, parent_id: child.id }),
+        "フォルダを自分自身やその中のフォルダへは移せません",
+      );
+      expect(await readFolder(folder.id)).toEqual(folder);
     });
   });
 });

@@ -1,6 +1,6 @@
 import { asc, eq } from "drizzle-orm";
 import type { Db } from "../db/client";
-import { folders, type FolderRow } from "../db/schema";
+import { folders, type FolderRow, type SpaceRow } from "../db/schema";
 import { canAccessSpace, type SpaceViewer } from "../spaces/access";
 import { findSpaceById } from "../spaces/queries";
 
@@ -8,14 +8,25 @@ export function findFolderById(db: Db, id: string): Promise<FolderRow | undefine
   return db.select().from(folders).where(eq(folders.id, id)).get();
 }
 
-// Returns the folder only if the viewer can access its space, otherwise null.
+// Returns the folder with its space only if the viewer can access the space, otherwise null.
 // Callers report null as missing so that the existence of the folder is not revealed.
-export async function findAccessibleFolder(db: Db, viewer: SpaceViewer, id: string): Promise<FolderRow | null> {
+export async function findAccessibleFolderWithSpace(
+  db: Db,
+  viewer: SpaceViewer,
+  id: string,
+): Promise<{ folder: FolderRow; space: SpaceRow } | null> {
   const folder = await findFolderById(db, id);
   if (!folder) return null;
   const space = await findSpaceById(db, folder.spaceId);
   if (!space || !canAccessSpace(viewer, space)) return null;
-  return folder;
+  return { folder, space };
+}
+
+// Returns the folder only if the viewer can access its space, otherwise null.
+// Callers report null as missing so that the existence of the folder is not revealed.
+export async function findAccessibleFolder(db: Db, viewer: SpaceViewer, id: string): Promise<FolderRow | null> {
+  const found = await findAccessibleFolderWithSpace(db, viewer, id);
+  return found?.folder ?? null;
 }
 
 // Returns true if the folder exists in the space.

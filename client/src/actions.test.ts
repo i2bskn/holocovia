@@ -4,6 +4,8 @@ import {
   createFolder,
   createPage,
   deleteFolder,
+  moveFolder,
+  movePage,
   purgeTrashedPage,
   restoreRevision,
   restoreTrashedPage,
@@ -406,5 +408,106 @@ describe("deleteFolder", () => {
   it("is redirecting when login is required", async () => {
     const { client } = setup(apiError(401, "ログインしてください"), 401, url);
     expect(await deleteFolder(client, "f1")).toEqual({ kind: "redirecting" });
+  });
+});
+
+describe("movePage", () => {
+  const url = "/api/v1/pages/p1/move";
+  const input = { version: 4, spaceId: "s2", folderId: null };
+
+  it("sends the version, the space and the folder and returns the page on 200", async () => {
+    const { client, fetch } = setup(() => Response.json({ ...PAGE, space_id: "s2", version: 5 }), 401, url);
+    expect(await movePage(client, "p1", { version: 4, spaceId: "s2", folderId: "f1" })).toEqual({
+      kind: "ok",
+      page: { ...PAGE, space_id: "s2", version: 5 },
+    });
+    const init = fetch.mock.calls[0]?.[1];
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(String(init?.body))).toEqual({ version: 4, space_id: "s2", folder_id: "f1" });
+  });
+
+  it("sends a null folder for the top level", async () => {
+    const { client, fetch } = setup(() => Response.json(PAGE), 401, url);
+    await movePage(client, "p1", input);
+    expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toEqual({ version: 4, space_id: "s2", folder_id: null });
+  });
+
+  it("is a conflict on 409", async () => {
+    const { client } = setup(apiError(409, "ページが他の人に更新されています"), 401, url);
+    expect(await movePage(client, "p1", input)).toEqual({ kind: "conflict" });
+  });
+
+  it("is not found on 404", async () => {
+    const { client } = setup(apiError(404, "ページが見つかりません"), 401, url);
+    expect(await movePage(client, "p1", input)).toEqual({ kind: "notFound" });
+  });
+
+  it.each([
+    [400, "移動先のスペースが見つかりません"],
+    [400, "移動先のフォルダが見つかりません"],
+    [500, "サーバーでエラーが発生しました"],
+  ])("is an error with the API message on %i", async (code, message) => {
+    const { client } = setup(apiError(code, message), 401, url);
+    expect(await movePage(client, "p1", input)).toEqual({ kind: "error", message });
+  });
+
+  it("is an error with a fixed message when the page is not JSON", async () => {
+    const { client } = setup(() => new Response("ok", { status: 200 }), 401, url);
+    expect(await movePage(client, "p1", input)).toEqual({
+      kind: "error",
+      message: "サーバーから予期しない応答がありました（HTTP 200）",
+    });
+  });
+
+  it("is unknown when fetch rejects", async () => {
+    const { client } = setup(() => Promise.reject(new TypeError("Failed to fetch")), 401, url);
+    expect(await movePage(client, "p1", input)).toEqual({ kind: "unknown" });
+  });
+
+  it("is redirecting when login is required", async () => {
+    const { client } = setup(apiError(401, "ログインしてください"), 401, url);
+    expect(await movePage(client, "p1", input)).toEqual({ kind: "redirecting" });
+  });
+});
+
+describe("moveFolder", () => {
+  const url = "/api/v1/folders/f1/move";
+  const input = { spaceId: "s2", parentId: null };
+
+  it("sends the space and the parent and is ok on 200", async () => {
+    const { client, fetch } = setup(() => Response.json({}), 401, url);
+    expect(await moveFolder(client, "f1", { spaceId: "s2", parentId: "f2" })).toEqual({ kind: "ok" });
+    const init = fetch.mock.calls[0]?.[1];
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(String(init?.body))).toEqual({ space_id: "s2", parent_id: "f2" });
+  });
+
+  it("sends a null parent for the top level", async () => {
+    const { client, fetch } = setup(() => Response.json({}), 401, url);
+    await moveFolder(client, "f1", input);
+    expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toEqual({ space_id: "s2", parent_id: null });
+  });
+
+  it("is not found on 404", async () => {
+    const { client } = setup(apiError(404, "フォルダが見つかりません"), 401, url);
+    expect(await moveFolder(client, "f1", input)).toEqual({ kind: "notFound" });
+  });
+
+  it.each([
+    [400, "移動先のスペースが見つかりません"],
+    [409, "フォルダを自分自身やその中のフォルダへは移せません"],
+  ])("is an error with the API message on %i", async (code, message) => {
+    const { client } = setup(apiError(code, message), 401, url);
+    expect(await moveFolder(client, "f1", input)).toEqual({ kind: "error", message });
+  });
+
+  it("is unknown when fetch rejects", async () => {
+    const { client } = setup(() => Promise.reject(new TypeError("Failed to fetch")), 401, url);
+    expect(await moveFolder(client, "f1", input)).toEqual({ kind: "unknown" });
+  });
+
+  it("is redirecting when login is required", async () => {
+    const { client } = setup(apiError(401, "ログインしてください"), 401, url);
+    expect(await moveFolder(client, "f1", input)).toEqual({ kind: "redirecting" });
   });
 });

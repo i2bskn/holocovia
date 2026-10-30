@@ -7,6 +7,8 @@ import type {
   CreateUserRequest,
   Folder,
   FolderList,
+  MoveFolderRequest,
+  MovePageRequest,
   Page,
   PageList,
   PageRevision,
@@ -36,6 +38,8 @@ type CreatePageJson = InferRequestType<(typeof client.api.v1.spaces)[":id"]["pag
 type UpdatePageJson = InferRequestType<(typeof client.api.v1.pages)[":id"]["$patch"]>["json"];
 type CreateFolderJson = InferRequestType<(typeof client.api.v1.spaces)[":id"]["folders"]["$post"]>["json"];
 type UpdateFolderJson = InferRequestType<(typeof client.api.v1.folders)[":id"]["$patch"]>["json"];
+type MovePageJson = InferRequestType<(typeof client.api.v1.pages)[":id"]["move"]["$post"]>["json"];
+type MoveFolderJson = InferRequestType<(typeof client.api.v1.folders)[":id"]["move"]["$post"]>["json"];
 type SearchQuery = InferRequestType<typeof client.api.v1.search.$get>["query"];
 type RestoreRevision = InferRequestType<
   (typeof client.api.v1.pages)[":id"]["revisions"][":version"]["restore"]["$post"]
@@ -80,6 +84,21 @@ describe("AppType", () => {
     void topLevel;
     void withoutName;
     void moveToTop;
+  });
+
+  it("types the request bodies of the moves between spaces", () => {
+    expectTypeOf<MovePageJson>().toEqualTypeOf<MovePageRequest>();
+    expectTypeOf<MoveFolderJson>().toEqualTypeOf<MoveFolderRequest>();
+    const pageToTop: MovePageJson = { version: 1, space_id: "s1", folder_id: null };
+    // @ts-expect-error version is required for optimistic locking
+    const pageWithoutVersion: MovePageJson = { space_id: "s1" };
+    const folderToTop: MoveFolderJson = { space_id: "s1" };
+    // @ts-expect-error space_id is required
+    const folderWithoutSpace: MoveFolderJson = { parent_id: null };
+    void pageToTop;
+    void pageWithoutVersion;
+    void folderToTop;
+    void folderWithoutSpace;
   });
 
   it("types folder_id on pages and search hits", () => {
@@ -132,6 +151,8 @@ describe("AppType", () => {
     >().toEqualTypeOf<Page>();
     expectTypeOf<InferResponseType<(typeof client.api.v1.spaces)[":id"]["trash"]["$get"], 200>>().toEqualTypeOf<TrashList>();
     expectTypeOf<InferResponseType<(typeof client.api.v1.pages)[":id"]["restore"]["$post"], 200>>().toEqualTypeOf<Page>();
+    expectTypeOf<InferResponseType<(typeof client.api.v1.pages)[":id"]["move"]["$post"], 200>>().toEqualTypeOf<Page>();
+    expectTypeOf<InferResponseType<(typeof client.api.v1.folders)[":id"]["move"]["$post"], 200>>().toEqualTypeOf<Folder>();
   });
 
   it("types the trash", () => {

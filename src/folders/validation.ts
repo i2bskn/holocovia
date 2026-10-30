@@ -16,6 +16,9 @@ export const emptyFolderUpdateMessage = "name か parent_id のどちらかを�
 export const folderCycleMessage = "フォルダを自分自身やその中のフォルダへは移せません";
 export const folderNotEmptyMessage =
   "中にページかフォルダがあるフォルダは削除できません。中身を移すか削除してから消してください";
+// Moving a page or a folder to a space. Shared with the moves of pages.
+export const invalidMoveSpaceIdMessage = "space_id は移動先のスペースの id で指定してください";
+export const moveSpaceNotFoundMessage = "移動先のスペースが見つかりません";
 
 // Returns the trimmed name, or null if invalid. Length is counted in code points; no Unicode normalization.
 export function normalizeFolderName(value: unknown): string | null {
@@ -33,4 +36,9 @@ export function normalizeFolderRef(value: unknown): { ok: true; value: string | 
   if (value === undefined || value === null) return { ok: true, value };
   if (typeof value === "string" && value !== "") return { ok: true, value };
   return { ok: false };
+}
+
+// The destination space of a move (space_id): a non-empty string. Whether the space exists is checked later.
+export function normalizeMoveSpaceId(value: unknown): string | null {
+  return typeof value === "string" && value !== "" ? value : null;
 }

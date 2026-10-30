@@ -335,6 +335,7 @@ a {
   gap: 0.5rem;
 }
 
+.page-move-button,
 .page-delete-button {
   margin-left: 0.5rem;
 }

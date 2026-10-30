@@ -35,7 +35,7 @@ export function FolderView({ client, id }: { client: ApiClient; id: string }) {
         </ol>
       </nav>
       <h1>{folder.name}</h1>
-      <FolderActions client={client} spaceId={space.id} folders={folders} folder={folder} onReload={reload} />
+      <FolderActions client={client} space={space} folders={folders} folder={folder} onReload={reload} />
       <EntryList
         folders={childFolders(folders, folder.id)}
         pages={pages.filter((page) => page.folder_id === folder.id)}

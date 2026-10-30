@@ -1,12 +1,13 @@
 import { type FormEvent, useState } from "react";
-import type { Folder } from "../../../src/api/types";
-import { type FolderActionResult, createFolder, deleteFolder, updateFolder } from "../actions";
-import { folderOptions } from "../edit";
+import type { Folder, Space } from "../../../src/api/types";
+import { type FolderActionResult, createFolder, deleteFolder, moveFolder, updateFolder } from "../actions";
 import { descendantIds } from "../folders";
+import { widerVisibilityWarning } from "../format";
 import { Link } from "../Link";
 import type { ApiClient } from "../load";
 import { isValidId, navigate } from "../router";
-import { TOP_LEVEL_LABEL, folderIdToValue, valueToFolderId } from "./PageEditor";
+import { MoveFolderSelect, MoveSpaceSelect, useMoveDestination } from "./MoveDestination";
+import { folderIdToValue, valueToFolderId } from "./PageEditor";
 
 type Operation = "create" | "rename" | "move" | "delete";
 
@@ -22,13 +23,14 @@ const CREATE_NOT_FOUND_MESSAGE = "スペースかフォルダが見つかりま�
 // folder in it, and renaming, moving and deleting the folder. One operation is open at a time.
 export function FolderActions({
   client,
-  spaceId,
+  space,
   folders,
   folder,
   onReload,
 }: {
   client: ApiClient;
-  spaceId: string;
+  // The space of the folder, which a move starts from.
+  space: Space;
   // All the folders of the space.
   folders: Folder[];
   folder: Folder | null;
@@ -38,9 +40,15 @@ export function FolderActions({
   const [sending, setSending] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
   const [name, setName] = useState("");
-  // The value of the move select; see folderIdToValue.
+  // The destination space of a move, and the value of its folder select (see folderIdToValue).
+  const [moveSpaceId, setMoveSpaceId] = useState(space.id);
   const [parentValue, setParentValue] = useState("");
+  const destination = useMoveDestination(client, open === "move", moveSpaceId, (next) => {
+    setMoveSpaceId(next);
+    setParentValue(folderIdToValue(null));
+  });
 
+  const spaceId = space.id;
   if (!isValidId(spaceId)) return null;
   const folderId = folder !== null && isValidId(folder.id) ? folder.id : null;
   const newPagePath = folderId !== null ? `/spaces/${spaceId}/new?folder=${folderId}` : `/spaces/${spaceId}/new`;
@@ -49,6 +57,7 @@ export function FolderActions({
     setOpen(operation);
     setFailure(null);
     setName(operation === "rename" && folder ? folder.name : "");
+    setMoveSpaceId(spaceId);
     setParentValue(folderIdToValue(folder?.parent_id ?? null));
   }
 
@@ -105,8 +114,11 @@ export function FolderActions({
         if (folderId !== null) void run("rename", () => updateFolder(client, folderId, { name }));
         return;
       case "move":
+        // Moves inside the space go through the same API as moves to another space.
         if (folderId !== null) {
-          void run("move", () => updateFolder(client, folderId, { parent_id: valueToFolderId(parentValue) }));
+          void run("move", () =>
+            moveFolder(client, folderId, { spaceId: moveSpaceId, parentId: valueToFolderId(parentValue) }),
+          );
         }
         return;
       case "delete":
@@ -117,8 +129,19 @@ export function FolderActions({
     }
   }
 
-  // The folder itself and the folders inside it cannot be its parent.
-  const moveExclude = folderId !== null ? descendantIds(folders, folderId).add(folderId) : new Set<string>();
+  // In its own space, the folder itself and the folders inside it cannot be its parent. Uses the folders
+  // loaded for the move, which are newer than those of the screen.
+  const moveFolders = destination.folders.kind === "ok" ? destination.folders.value : [];
+  const moveExclude =
+    folderId !== null && moveSpaceId === spaceId
+      ? descendantIds(moveFolders, folderId).add(folderId)
+      : new Set<string>();
+  const moveDest = destination.space;
+  const moveWarning = moveDest ? widerVisibilityWarning(space.kind, moveDest) : null;
+  const moveToOtherSpace = moveSpaceId !== spaceId;
+  const moveUnchanged = !moveToOtherSpace && valueToFolderId(parentValue) === (folder?.parent_id ?? null);
+  const moveBlocked =
+    moveUnchanged || destination.spaces.kind !== "ok" || destination.folders.kind === "loading" || moveDest === null;
 
   return (
     <>
@@ -156,22 +179,27 @@ export function FolderActions({
             </label>
           )}
           {open === "move" && (
-            <label>
-              移動先
-              <select value={parentValue} onChange={(event) => setParentValue(event.target.value)} disabled={sending}>
-                <option value={folderIdToValue(null)}>{TOP_LEVEL_LABEL}</option>
-                {folderOptions(folders, moveExclude).map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <>
+              <MoveSpaceSelect destination={destination} disabled={sending} />
+              <MoveFolderSelect
+                destination={destination}
+                value={parentValue}
+                onChange={setParentValue}
+                exclude={moveExclude}
+                disabled={sending}
+              />
+              {(moveWarning !== null || moveToOtherSpace) && (
+                <p>
+                  {moveWarning}
+                  中のページとフォルダ（ゴミ箱のページを含む）もすべて移ります。
+                </p>
+              )}
+            </>
           )}
           {open === "delete" && <p>このフォルダを削除します。中にページやフォルダがあると削除できません。</p>}
           <div className="folder-form-actions">
-            <button type="submit" disabled={sending}>
-              {SUBMIT_LABELS[open]}
+            <button type="submit" disabled={sending || (open === "move" && moveBlocked)}>
+              {open === "move" && moveWarning !== null ? "公開範囲を広げて移動" : SUBMIT_LABELS[open]}
             </button>
             <button type="button" onClick={close} disabled={sending}>
               やめる

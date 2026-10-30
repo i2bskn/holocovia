@@ -1,12 +1,17 @@
-import { and, eq, exists, isNotNull, sql, type SQL } from "drizzle-orm";
-import type { CreateFolderInput, UpdateFolderInput } from "../api/types";
+import { and, eq, exists, isNotNull, ne, sql, type SQL } from "drizzle-orm";
+import type { CreateFolderInput, MoveFolderInput, UpdateFolderInput } from "../api/types";
 import { clock } from "../clock";
 import type { Db } from "../db/client";
 import { isForeignKeyViolation } from "../db/errors";
-import { folders, pages, type FolderRow, type UserRow } from "../db/schema";
-import { canAccessSpace } from "../spaces/access";
+import { folders, pages, spaces, type FolderRow, type UserRow } from "../db/schema";
+import {
+  canAccessSpace,
+  visibilityNotAcknowledged,
+  type MoveOptions,
+  type VisibilityNotAcknowledged,
+} from "../spaces/access";
 import { findSpaceById } from "../spaces/queries";
-import { findAccessibleFolder, findFolderById, folderExistsInSpace } from "./queries";
+import { findAccessibleFolder, findAccessibleFolderWithSpace, findFolderById, folderExistsInSpace } from "./queries";
 
 // Shared by the REST API and the MCP tools. Input is validated by the callers (see validation.ts).
 // D1 has no interactive transactions, so each write is one conditional statement.
@@ -24,37 +29,50 @@ export async function createFolder(
   const space = await findSpaceById(db, spaceId);
   // Spaces the user cannot access are reported as missing so that their existence is not revealed.
   if (!space || !canAccessSpace(user, space)) return { ok: false, error: "space_not_found" };
-  // Assumes that the space of a folder never changes, so the check cannot go stale before the insert.
-  // When folders can move between spaces (M3), make this one conditional INSERT ... SELECT ... WHERE EXISTS.
   if (input.parentId !== null && !(await folderExistsInSpace(db, input.parentId, space.id))) {
     return { ok: false, error: "parent_not_found" };
   }
 
   const now = clock.now();
+  // One conditional INSERT ... SELECT, so that a parent moved to another space (or a space deleted) after
+  // the checks above inserts nothing. drizzle checks that the keys are those of the table, in the same order.
+  const conditions: SQL[] = [eq(spaces.id, space.id)];
+  if (input.parentId !== null) {
+    conditions.push(
+      sql`EXISTS (SELECT 1 FROM ${folders} p WHERE p.id = ${input.parentId} AND p.space_id = ${space.id})`,
+    );
+  }
+  let folder: FolderRow | undefined;
   try {
-    const folder = await db
+    folder = await db
       .insert(folders)
-      .values({
-        id: crypto.randomUUID(),
-        spaceId: space.id,
-        parentId: input.parentId,
-        name: input.name,
-        createdBy: user.id,
-        updatedBy: user.id,
-        createdAt: now,
-        updatedAt: now,
-      })
+      .select(
+        db
+          .select({
+            id: sql<string>`${crypto.randomUUID()}`.as("id"),
+            spaceId: sql<string>`${space.id}`.as("space_id"),
+            parentId: sql<string | null>`${input.parentId}`.as("parent_id"),
+            name: sql<string>`${input.name}`.as("name"),
+            createdBy: sql<string>`${user.id}`.as("created_by"),
+            updatedBy: sql<string>`${user.id}`.as("updated_by"),
+            createdAt: sql<number>`${now}`.as("created_at"),
+            updatedAt: sql<number>`${now}`.as("updated_at"),
+          })
+          .from(spaces)
+          .where(and(...conditions)),
+      )
       .returning()
       .get();
-    return { ok: true, folder };
   } catch (error) {
-    // The parent or the space was deleted after the checks above (or the user, whose session ends with it).
+    // The user was deleted after the checks above (the session ends with it).
     if (!isForeignKeyViolation(error)) throw error;
-    if (input.parentId !== null && !(await folderExistsInSpace(db, input.parentId, space.id))) {
-      return { ok: false, error: "parent_not_found" };
-    }
-    return { ok: false, error: "space_not_found" };
   }
+  if (folder) return { ok: true, folder };
+  // The parent was moved or deleted, or the space was deleted, after the checks above.
+  if (input.parentId !== null && !(await folderExistsInSpace(db, input.parentId, space.id))) {
+    return { ok: false, error: "parent_not_found" };
+  }
+  return { ok: false, error: "space_not_found" };
 }
 
 export type UpdateFolderResult =
@@ -150,4 +168,117 @@ export async function deleteFolder(db: Db, user: UserRow, folderId: string): Pro
   const current = await findFolderById(db, folder.id);
   if (!current || current.spaceId !== folder.spaceId) return { ok: false, error: "not_found" };
   return { ok: false, error: "folder_not_empty" };
+}
+
+export type MoveFolderResult =
+  | { ok: true; folder: FolderRow }
+  | { ok: false; error: "not_found" | "space_not_found" | "parent_not_found" | "folder_cycle" }
+  | VisibilityNotAcknowledged;
+
+// The ids of the folder and the folders inside it, at any depth, as a subquery. UNION (not UNION ALL)
+// stops even on an existing cycle.
+function subtreeIds(rootId: string): SQL {
+  return sql`WITH RECURSIVE sub(id) AS (
+    SELECT ${rootId}
+    UNION SELECT f.id FROM ${folders} f JOIN sub ON f.parent_id = sub.id
+  ) SELECT id FROM sub`;
+}
+
+// The condition shared by the statements of moveFolder, so that they all change rows or none do.
+// It stays the same through the batch:
+// - It does not depend on pages, so the first statement (on pages) cannot change it.
+// - The second statement changes the space of the folders inside the root, but not the root, so "the root
+//   is in the source space" holds until the third statement; no parent_id changes before the third
+//   statement, so the subtree and "the parent is not in the subtree" do not change either.
+// - "The parent is in the destination space" could change only if the parent were in the subtree, which
+//   the condition rules out.
+function folderMoveGuard(
+  folder: Pick<FolderRow, "id" | "spaceId">,
+  destSpaceId: string,
+  parentId: string | null,
+): SQL | undefined {
+  const conditions: SQL[] = [
+    sql`EXISTS (SELECT 1 FROM ${folders} r WHERE r.id = ${folder.id} AND r.space_id = ${folder.spaceId})`,
+    sql`EXISTS (SELECT 1 FROM ${spaces} s WHERE s.id = ${destSpaceId})`,
+  ];
+  if (parentId !== null) {
+    conditions.push(
+      sql`EXISTS (SELECT 1 FROM ${folders} p WHERE p.id = ${parentId} AND p.space_id = ${destSpaceId})`,
+      // The folder itself and the folders inside it cannot be its parent.
+      sql`${parentId} NOT IN (${subtreeIds(folder.id)})`,
+    );
+  }
+  return and(...conditions);
+}
+
+// Moves the folder into a folder (or the top level, for null) of another space, or of the same space.
+// The folders and pages inside it, including pages in the trash, move with it and keep their place in it.
+// The user needs access to both spaces. Only the folder itself gets a new updated_at and updated_by.
+export async function moveFolder(
+  db: Db,
+  user: UserRow,
+  folderId: string,
+  input: MoveFolderInput,
+  options: MoveOptions,
+): Promise<MoveFolderResult> {
+  const found = await findAccessibleFolderWithSpace(db, user, folderId);
+  if (!found) return { ok: false, error: "not_found" };
+  const { folder, space: source } = found;
+  const dest = await findSpaceById(db, input.spaceId);
+  // Spaces the user cannot access are reported as missing so that their existence is not revealed.
+  if (!dest || !canAccessSpace(user, dest)) return { ok: false, error: "space_not_found" };
+  // Checked with the same source space as the condition of the writes: if the folder moves to another
+  // space after this, the writes change nothing.
+  const notAcknowledged = visibilityNotAcknowledged(source, dest, options);
+  if (notAcknowledged) return notAcknowledged;
+
+  // One batch (a transaction in D1) with the same guard in all statements, so that the contents are never
+  // split between two spaces. The pages and the folders inside are moved before the folder itself, while
+  // the guard can still see the folder in the source space.
+  const guard = folderMoveGuard(folder, dest.id, input.parentId);
+  const subtree = subtreeIds(folder.id);
+  let moved: FolderRow | undefined;
+  try {
+    const [, , rows] = await db.batch([
+      // Including pages in the trash. Their version and updated_at do not change.
+      db
+        .update(pages)
+        .set({ spaceId: dest.id })
+        .where(and(eq(pages.spaceId, folder.spaceId), sql`${pages.folderId} IN (${subtree})`, guard)),
+      // The folders inside keep their parents and updated_at.
+      db
+        .update(folders)
+        .set({ spaceId: dest.id })
+        .where(
+          and(
+            eq(folders.spaceId, folder.spaceId),
+            sql`${folders.id} IN (${subtree})`,
+            ne(folders.id, folder.id),
+            guard,
+          ),
+        ),
+      db
+        .update(folders)
+        .set({ spaceId: dest.id, parentId: input.parentId, updatedBy: user.id, updatedAt: clock.now() })
+        .where(and(eq(folders.id, folder.id), guard))
+        .returning(),
+    ]);
+    moved = rows[0];
+  } catch (error) {
+    // The user was deleted after the checks above (the session ends with it). A backstop: the guard
+    // already requires the destination space and parent.
+    if (!isForeignKeyViolation(error)) throw error;
+    return { ok: false, error: "space_not_found" };
+  }
+  if (moved) return { ok: true, folder: moved };
+
+  // Access is not checked again: the folder and the destination space were visible just before.
+  const current = await findFolderById(db, folder.id);
+  if (!current || current.spaceId !== folder.spaceId) return { ok: false, error: "not_found" };
+  if (!(await findSpaceById(db, dest.id))) return { ok: false, error: "space_not_found" };
+  if (input.parentId !== null) {
+    if (!(await folderExistsInSpace(db, input.parentId, dest.id))) return { ok: false, error: "parent_not_found" };
+    return { ok: false, error: "folder_cycle" };
+  }
+  return { ok: false, error: "not_found" };
 }

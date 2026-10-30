@@ -2,6 +2,8 @@ import { Hono, type Context } from "hono";
 import type {
   CreatePageInput,
   CreatePageRequest,
+  MovePageInput,
+  MovePageRequest,
   PageRevisionList,
   RestorePageRevisionRequest,
   UpdatePageInput,
@@ -9,10 +11,18 @@ import type {
 } from "../api/types";
 import type { AppEnv } from "../env";
 import { apiError, requireAdmin, requireUser } from "../auth/middleware";
-import { folderNotFoundMessage, invalidFolderIdMessage, normalizeFolderRef } from "../folders/validation";
+import {
+  folderNotFoundMessage,
+  invalidFolderIdMessage,
+  invalidMoveSpaceIdMessage,
+  moveSpaceNotFoundMessage,
+  normalizeFolderRef,
+  normalizeMoveSpaceId,
+  parentNotFoundOnMoveMessage,
+} from "../folders/validation";
 import { findAccessiblePage } from "../pages/queries";
 import { findAccessiblePageRevision, listAccessiblePageRevisions, restorePageRevision } from "../pages/revisions";
-import { updatePage } from "../pages/service";
+import { movePage, updatePage } from "../pages/service";
 import { purgeTrashedPage, restoreTrashedPage, trashPage } from "../pages/trash";
 import {
   emptyUpdateMessage,
@@ -79,6 +89,17 @@ const updatePageBody = jsonBody<UpdatePageRequest, UpdatePageInput>((body, c) =>
   return { ok: true, value };
 });
 
+// Validated in the order version, space_id, folder_id.
+const movePageBody = jsonBody<MovePageRequest, MovePageInput>((body, c) => {
+  const version = normalizeVersion(body.version);
+  if (version === null) return apiError(c, 400, "invalid_version", invalidVersionMessage);
+  const spaceId = normalizeMoveSpaceId(body.space_id);
+  if (spaceId === null) return apiError(c, 400, "invalid_space_id", invalidMoveSpaceIdMessage);
+  const folderId = normalizeFolderRef(body.folder_id);
+  if (!folderId.ok) return invalidFolderId(c);
+  return { ok: true, value: { version, spaceId, folderId: folderId.value ?? null } };
+});
+
 const restorePageRevisionBody = jsonBody<RestorePageRevisionRequest, RestorePageRevisionRequest>((body, c) => {
   const version = normalizeVersion(body.version);
   if (version === null) return apiError(c, 400, "invalid_version", invalidVersionMessage);
@@ -98,6 +119,28 @@ const pagesApi = new Hono<AppEnv>()
     // 400 rather than 404: the page in the path exists, but the folder in the body does not.
     if (result.error === "folder_not_found") return apiError(c, 400, "folder_not_found", folderNotFoundMessage);
     return apiError(c, 409, "version_conflict", versionConflictMessage);
+  })
+  // Moves the page to another space or inside its space. The Web UI warns before a move that lets more
+  // people see the page; the API does not ask for an acknowledgement (the MCP tool does).
+  .post("/:id/move", requireUser, movePageBody, async (c) => {
+    const result = await movePage(c.get("db"), c.get("user"), c.req.param("id"), c.req.valid("json"), {
+      requireVisibilityAck: false,
+      acknowledged: false,
+    });
+    if (result.ok) return c.json(toApiPage(result.page), 200);
+    switch (result.error) {
+      case "not_found":
+        return apiError(c, 404, "not_found", pageNotFoundMessage);
+      // 400 rather than 404: the page in the path exists, but the space or folder in the body does not.
+      case "space_not_found":
+        return apiError(c, 400, "space_not_found", moveSpaceNotFoundMessage);
+      case "folder_not_found":
+        return apiError(c, 400, "folder_not_found", parentNotFoundOnMoveMessage);
+      case "version_conflict":
+        return apiError(c, 409, "version_conflict", versionConflictMessage);
+      case "visibility_not_acknowledged":
+        throw new Error("unreachable: the acknowledgement is not required");
+    }
   })
   .get("/:id/revisions", requireUser, async (c) => {
     const result = await listAccessiblePageRevisions(c.get("db"), c.get("user"), c.req.param("id"));

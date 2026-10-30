@@ -1,18 +1,28 @@
 import { Hono, type Context } from "hono";
-import type { CreateFolderInput, CreateFolderRequest, UpdateFolderInput, UpdateFolderRequest } from "../api/types";
+import type {
+  CreateFolderInput,
+  CreateFolderRequest,
+  MoveFolderInput,
+  MoveFolderRequest,
+  UpdateFolderInput,
+  UpdateFolderRequest,
+} from "../api/types";
 import type { AppEnv } from "../env";
 import { apiError, requireUser } from "../auth/middleware";
 import { findAccessibleFolder } from "../folders/queries";
-import { deleteFolder, updateFolder } from "../folders/service";
+import { deleteFolder, moveFolder, updateFolder } from "../folders/service";
 import {
   emptyFolderUpdateMessage,
   folderCycleMessage,
   folderNotEmptyMessage,
   folderNotFoundMessage,
   invalidFolderNameMessage,
+  invalidMoveSpaceIdMessage,
   invalidParentIdMessage,
+  moveSpaceNotFoundMessage,
   normalizeFolderName,
   normalizeFolderRef,
+  normalizeMoveSpaceId,
   parentNotFoundOnMoveMessage,
 } from "../folders/validation";
 import { jsonBody, toApiFolder } from "./api";
@@ -51,6 +61,15 @@ const updateFolderBody = jsonBody<UpdateFolderRequest, UpdateFolderInput>((body,
   return { ok: true, value };
 });
 
+// Validated in the order space_id, parent_id.
+const moveFolderBody = jsonBody<MoveFolderRequest, MoveFolderInput>((body, c) => {
+  const spaceId = normalizeMoveSpaceId(body.space_id);
+  if (spaceId === null) return apiError(c, 400, "invalid_space_id", invalidMoveSpaceIdMessage);
+  const parentId = normalizeFolderRef(body.parent_id);
+  if (!parentId.ok) return invalidParentId(c);
+  return { ok: true, value: { spaceId, parentId: parentId.value ?? null } };
+});
+
 // Folders in spaces the user cannot access are reported as missing so that their existence is not revealed.
 const foldersApi = new Hono<AppEnv>()
   .get("/:id", requireUser, async (c) => {
@@ -69,6 +88,28 @@ const foldersApi = new Hono<AppEnv>()
         return apiError(c, 400, "parent_not_found", parentNotFoundOnMoveMessage);
       case "folder_cycle":
         return apiError(c, 409, "folder_cycle", folderCycleMessage);
+    }
+  })
+  // Moves the folder with its contents to another space or inside its space. The Web UI warns before a
+  // move that lets more people see the contents; the API does not ask for an acknowledgement (the MCP tool does).
+  .post("/:id/move", requireUser, moveFolderBody, async (c) => {
+    const result = await moveFolder(c.get("db"), c.get("user"), c.req.param("id"), c.req.valid("json"), {
+      requireVisibilityAck: false,
+      acknowledged: false,
+    });
+    if (result.ok) return c.json(toApiFolder(result.folder), 200);
+    switch (result.error) {
+      case "not_found":
+        return apiError(c, 404, "not_found", folderNotFoundMessage);
+      // 400 rather than 404: the folder in the path exists, but the space or parent in the body does not.
+      case "space_not_found":
+        return apiError(c, 400, "space_not_found", moveSpaceNotFoundMessage);
+      case "parent_not_found":
+        return apiError(c, 400, "parent_not_found", parentNotFoundOnMoveMessage);
+      case "folder_cycle":
+        return apiError(c, 409, "folder_cycle", folderCycleMessage);
+      case "visibility_not_acknowledged":
+        throw new Error("unreachable: the acknowledgement is not required");
     }
   })
   .delete("/:id", requireUser, async (c) => {

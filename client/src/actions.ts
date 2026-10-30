@@ -178,6 +178,41 @@ export async function updatePage(
   return { kind: "error", message: await responseErrorMessage(res) };
 }
 
+export type MovePageResult =
+  | { kind: "ok"; page: Page }
+  // The page is missing, in the trash, or not accessible.
+  | { kind: "notFound" }
+  // Someone else updated the page after it was loaded.
+  | { kind: "conflict" }
+  | SendFailure;
+
+// Moves a page to a folder (or the top level, for null) of a space, which may be its own space.
+// version is the version of the page as loaded. Never rejects.
+export async function movePage(
+  client: ApiClient,
+  pageId: string,
+  input: { version: number; spaceId: string; folderId: string | null },
+): Promise<MovePageResult> {
+  const sent = await send(() =>
+    client.api.v1.pages[":id"].move.$post({
+      param: { id: pageId },
+      json: { version: input.version, space_id: input.spaceId, folder_id: input.folderId },
+    }),
+  );
+  if (sent.kind !== "response") return sent;
+  const { res } = sent;
+  if (res.ok) {
+    try {
+      return { kind: "ok", page: await res.json() };
+    } catch {
+      return { kind: "error", message: unexpectedResponseMessage(res.status) };
+    }
+  }
+  if (res.status === 404) return { kind: "notFound" };
+  if (res.status === 409) return { kind: "conflict" };
+  return { kind: "error", message: await responseErrorMessage(res) };
+}
+
 // The outcome of the folder actions. Errors of the request (400) and of the state of the folders (409:
 // a cycle, a folder that is not empty) are shown with the server's message.
 export type FolderActionResult =
@@ -220,6 +255,23 @@ export async function updateFolder(
 ): Promise<FolderActionResult> {
   return folderActionResult(
     await send(() => client.api.v1.folders[":id"].$patch({ param: { id: folderId }, json: changes })),
+  );
+}
+
+// Moves a folder with its contents into a folder (or the top level, for null) of a space, which may be its
+// own space. Never rejects.
+export async function moveFolder(
+  client: ApiClient,
+  folderId: string,
+  input: { spaceId: string; parentId: string | null },
+): Promise<FolderActionResult> {
+  return folderActionResult(
+    await send(() =>
+      client.api.v1.folders[":id"].move.$post({
+        param: { id: folderId },
+        json: { space_id: input.spaceId, parent_id: input.parentId },
+      }),
+    ),
   );
 }
 

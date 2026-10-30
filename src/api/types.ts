@@ -119,7 +119,7 @@ export type CreateFolderInput = {
 };
 
 // At least one of name and parent_id is required; this is checked at runtime, not by the type.
-// parent_id null moves the folder to the top level; the folder stays in its space.
+// parent_id null moves the folder to the top level; the folder stays in its space (see MoveFolderRequest).
 export type UpdateFolderRequest = {
   name?: string;
   parent_id?: string | null;
@@ -129,6 +129,21 @@ export type UpdateFolderRequest = {
 export type UpdateFolderInput = {
   name?: string;
   parentId?: string | null;
+};
+
+// Moves the folder with the folders and pages in it (including pages in the trash) to another space, or
+// inside its space. A missing or null parent_id moves it to the top level of the destination space.
+export type MoveFolderRequest = {
+  // The destination space. The user needs access to both spaces.
+  space_id: string;
+  // A folder in the destination space.
+  parent_id?: string | null;
+};
+
+// MoveFolderRequest after validation. A missing parent_id is null.
+export type MoveFolderInput = {
+  spaceId: string;
+  parentId: string | null;
 };
 
 // A page without its body, as returned by page lists.
@@ -191,6 +206,7 @@ export type UpdatePageRequest = {
   title?: string;
   body?: string;
   // Moves the page to a folder in the same space; null moves it to the top level.
+  // To move it to another space, see MovePageRequest.
   folder_id?: string | null;
 };
 
@@ -200,6 +216,24 @@ export type UpdatePageInput = {
   title?: string;
   body?: string;
   folderId?: string | null;
+};
+
+// Moves the page to another space, or inside its space. A missing or null folder_id moves it to the top
+// level of the destination space. The revisions move with the page.
+export type MovePageRequest = {
+  // The version the move is based on. A different current version is a conflict.
+  version: number;
+  // The destination space. The user needs access to both spaces.
+  space_id: string;
+  // A folder in the destination space.
+  folder_id?: string | null;
+};
+
+// MovePageRequest after validation. A missing folder_id is null.
+export type MovePageInput = {
+  version: number;
+  spaceId: string;
+  folderId: string | null;
 };
 
 // An earlier version of a page, without its body.

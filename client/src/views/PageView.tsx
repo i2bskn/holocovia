@@ -1,18 +1,22 @@
-import { useState } from "react";
-import type { Page } from "../../../src/api/types";
-import { trashPage } from "../actions";
-import { formatDateTime, spaceDisplayName } from "../format";
+import { type FormEvent, useState } from "react";
+import type { Page, Space } from "../../../src/api/types";
+import { movePage, trashPage } from "../actions";
+import { formatDateTime, spaceDisplayName, widerVisibilityWarning } from "../format";
 import { folderPath } from "../folders";
 import { Link } from "../Link";
 import { type ApiClient, loadPageView, useView } from "../load";
 import { Markdown } from "../Markdown";
 import { isValidId, navigate } from "../router";
 import { ViewStatus, useDocumentTitle, viewTitle } from "./common";
+import { MoveFolderSelect, MoveSpaceSelect, useMoveDestination } from "./MoveDestination";
+import { folderIdToValue, valueToFolderId } from "./PageEditor";
 
 export function PageView({ client, id, origin }: { client: ApiClient; id: string; origin: string }) {
   const [state, reload] = useView(() => loadPageView(client, id), id);
   // Whether the confirmation of moving the page to the trash is shown.
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  // Whether the panel to move the page is shown.
+  const [moving, setMoving] = useState(false);
   useDocumentTitle(viewTitle(state, (data) => data.page.title));
 
   if (state.kind !== "ready") {
@@ -51,15 +55,139 @@ export function PageView({ client, id, origin }: { client: ApiClient; id: string
             </Link>
           </>
         )}
+        {!moving && (
+          <button type="button" className="page-move-button" onClick={() => setMoving(true)}>
+            移動
+          </button>
+        )}
         {!confirmingDelete && (
           <button type="button" className="page-delete-button" onClick={() => setConfirmingDelete(true)}>
             削除
           </button>
         )}
       </p>
+      {moving && (
+        <MovePage
+          client={client}
+          page={page}
+          space={space}
+          onCancel={() => setMoving(false)}
+          onReload={() => {
+            setMoving(false);
+            reload();
+          }}
+        />
+      )}
       {confirmingDelete && <TrashPage client={client} page={page} onCancel={() => setConfirmingDelete(false)} />}
       <Markdown body={page.body} origin={origin} />
     </main>
+  );
+}
+
+type MoveState =
+  | { kind: "idle" }
+  | { kind: "sending" }
+  | { kind: "error"; message: string }
+  // Someone else updated the page after it was loaded.
+  | { kind: "conflict" }
+  // The move to the login page has started; the buttons stay disabled.
+  | { kind: "redirecting" };
+
+const MOVE_UNKNOWN_RESULT_MESSAGE = "サーバーに接続できませんでした。読み込み直して確かめてください";
+
+// The panel to move the page to another space or folder. space is the page's space, or null when it could
+// not be loaded; then its kind is taken from the list of spaces.
+function MovePage({
+  client,
+  page,
+  space,
+  onCancel,
+  onReload,
+}: {
+  client: ApiClient;
+  page: Page;
+  space: Space | null;
+  onCancel: () => void;
+  onReload: () => void;
+}) {
+  const [state, setState] = useState<MoveState>({ kind: "idle" });
+  const [spaceId, setSpaceId] = useState(page.space_id);
+  // The value of the folder select; see folderIdToValue.
+  const [folderValue, setFolderValue] = useState(folderIdToValue(page.folder_id));
+  const destination = useMoveDestination(client, true, spaceId, (next) => {
+    setSpaceId(next);
+    setFolderValue(folderIdToValue(null));
+  });
+
+  const spaces = destination.spaces;
+  const source = space ?? (spaces.kind === "ok" ? (spaces.value.find((s) => s.id === page.space_id) ?? null) : null);
+  const dest = destination.space;
+  const folderId = valueToFolderId(folderValue);
+  const warning = source && dest ? widerVisibilityWarning(source.kind, dest) : null;
+  const unchanged = spaceId === page.space_id && folderId === page.folder_id;
+  const busy = state.kind === "sending" || state.kind === "redirecting";
+
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setState({ kind: "sending" });
+    const result = await movePage(client, page.id, { version: page.version, spaceId, folderId });
+    switch (result.kind) {
+      case "ok":
+        // The breadcrumbs show the new space and folder after the reload.
+        onReload();
+        return;
+      case "conflict":
+        setState({ kind: "conflict" });
+        return;
+      case "notFound":
+        setState({ kind: "error", message: "このページは見つかりません。削除された可能性があります" });
+        return;
+      case "error":
+        setState({ kind: "error", message: result.message });
+        return;
+      case "unknown":
+        setState({ kind: "error", message: MOVE_UNKNOWN_RESULT_MESSAGE });
+        return;
+      case "redirecting":
+        setState({ kind: "redirecting" });
+        return;
+    }
+  }
+
+  return (
+    <form className="folder-form" aria-label="ページを移動" onSubmit={(event) => void onSubmit(event)}>
+      <MoveSpaceSelect destination={destination} disabled={busy} />
+      <MoveFolderSelect destination={destination} value={folderValue} onChange={setFolderValue} disabled={busy} />
+      {warning !== null && <p>{warning}</p>}
+      <div className="folder-form-actions">
+        <button
+          type="submit"
+          disabled={
+            busy ||
+            unchanged ||
+            spaces.kind !== "ok" ||
+            destination.folders.kind === "loading" ||
+            // Without the kinds of both spaces, whether the move widens the visibility is not known.
+            source === null ||
+            dest === null
+          }
+        >
+          {warning !== null ? "公開範囲を広げて移動" : "移動"}
+        </button>
+        <button type="button" onClick={onCancel} disabled={busy}>
+          やめる
+        </button>
+      </div>
+      {state.kind === "error" && <p role="alert">{state.message}</p>}
+      {state.kind === "conflict" && (
+        <p role="alert">
+          このページは他の人に更新されています。読み込み直してからやり直してください{" "}
+          <button type="button" onClick={onReload}>
+            読み込み直す
+          </button>
+        </p>
+      )}
+    </form>
   );
 }
 

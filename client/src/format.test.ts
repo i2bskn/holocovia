@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatDateTime, formatPurgeRemaining, formatSnippet, spaceDisplayName } from "./format";
+import { formatDateTime, formatPurgeRemaining, formatSnippet, spaceDisplayName, widerVisibilityWarning } from "./format";
 
 describe("spaceDisplayName", () => {
   it("shows personal spaces as 個人スペース", () => {
@@ -42,5 +42,22 @@ describe("formatPurgeRemaining", () => {
   it("says soon at or after the time", () => {
     expect(formatPurgeRemaining(NOW, NOW)).toBe("まもなく完全に削除されます");
     expect(formatPurgeRemaining(NOW - DAY, NOW)).toBe("まもなく完全に削除されます");
+  });
+});
+
+describe("widerVisibilityWarning", () => {
+  it("warns about a space more people can see, with the kinds and the revisions", () => {
+    expect(widerVisibilityWarning("personal", { kind: "everyone", name: "開発" })).toBe(
+      "移動先の「開発」は、今のスペースより多くの人が見られます（自分だけ → 全員）。" +
+        "ページの過去の版（履歴）も見られるようになります。",
+    );
+    expect(widerVisibilityWarning("admin", { kind: "everyone", name: "開発" })).toContain("（管理者のみ → 全員）");
+    expect(widerVisibilityWarning("personal", { kind: "admin", name: "管理" })).toContain("「管理」");
+  });
+
+  it("is null for a space of the same kind or one fewer people can see", () => {
+    expect(widerVisibilityWarning("everyone", { kind: "everyone", name: "別" })).toBeNull();
+    expect(widerVisibilityWarning("everyone", { kind: "admin", name: "管理" })).toBeNull();
+    expect(widerVisibilityWarning("admin", { kind: "personal", name: null })).toBeNull();
   });
 });

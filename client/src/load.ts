@@ -269,6 +269,26 @@ export async function loadSearchView(client: ApiClient, query: string): Promise<
   return { kind: "ready", data: { query: q, hits: result.value.hits, hasMore: result.value.has_more, spaceNames } };
 }
 
+// A list loaded by a part of a screen (the move panels), not by the screen itself.
+export type ListResult<T> = { kind: "ok"; value: T } | { kind: "error" } | { kind: "redirecting" };
+
+// The spaces the user can access, to choose the destination of a move from. Never rejects.
+export async function loadSpaceList(client: ApiClient): Promise<ListResult<Space[]>> {
+  const list = await request(() => client.api.v1.spaces.$get());
+  if (list.kind === "redirecting") return list;
+  if (list.kind !== "ok") return { kind: "error" };
+  return { kind: "ok", value: list.value.spaces };
+}
+
+// All the folders of a space, to choose the destination of a move from. Never rejects.
+export async function loadFolderList(client: ApiClient, spaceId: string): Promise<ListResult<Folder[]>> {
+  if (!isValidId(spaceId)) return { kind: "error" };
+  const list = await request(() => client.api.v1.spaces[":id"].folders.$get({ param: { id: spaceId } }));
+  if (list.kind === "redirecting") return list;
+  if (list.kind !== "ok") return { kind: "error" };
+  return { kind: "ok", value: list.value.folders };
+}
+
 // Loads a screen's data while the component is mounted, and again when key changes or reload is called.
 // A result that arrives after key has changed is dropped, so a previous screen does not overwrite the state.
 export function useView<T>(load: () => Promise<Loaded<T>>, key: string): [ViewState<T>, () => void] {

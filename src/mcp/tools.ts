@@ -7,6 +7,7 @@ import type {
   PageList,
   PageRevisionList,
   SearchResult,
+  SpaceKind,
   SpaceList,
   TrashList,
   UpdateFolderInput,
@@ -16,7 +17,7 @@ import { describeError } from "../auth/middleware";
 import type { Db } from "../db/client";
 import { spaces, type UserRow } from "../db/schema";
 import { listFolders } from "../folders/queries";
-import { createFolder, deleteFolder, updateFolder } from "../folders/service";
+import { createFolder, deleteFolder, moveFolder, updateFolder } from "../folders/service";
 import {
   emptyFolderUpdateMessage,
   folderCycleMessage,
@@ -24,16 +25,19 @@ import {
   folderNotFoundMessage,
   invalidFolderIdMessage,
   invalidFolderNameMessage,
+  invalidMoveSpaceIdMessage,
   invalidParentIdMessage,
+  moveSpaceNotFoundMessage,
   normalizeFolderName,
   normalizeFolderRef,
+  normalizeMoveSpaceId,
   parentNotFoundOnCreateMessage,
   parentNotFoundOnMoveMessage,
 } from "../folders/validation";
 import { findAccessiblePage, listPageSummaries } from "../pages/queries";
 import { findAccessiblePageRevision, listAccessiblePageRevisions, restorePageRevision } from "../pages/revisions";
 import { searchAccessiblePages } from "../pages/search";
-import { createPage, updatePage } from "../pages/service";
+import { createPage, movePage, updatePage } from "../pages/service";
 import { listTrash, restoreTrashedPage, trashPage } from "../pages/trash";
 import {
   emptyUpdateMessage,
@@ -60,7 +64,7 @@ import {
   toApiSpace,
   toApiTrashedPage,
 } from "../routes/api";
-import { accessibleSpacesWhere, canAccessSpace } from "../spaces/access";
+import { accessibleSpacesWhere, canAccessSpace, type VisibilityNotAcknowledged } from "../spaces/access";
 import { findSpaceById } from "../spaces/queries";
 
 export type ToolDeps = { db: Db; user: UserRow };
@@ -84,6 +88,22 @@ async function guard(tool: string, run: () => Promise<CallToolResult>): Promise<
     console.error("mcp tool failed", { tool, ...describeError(error) });
     return errorResult("サーバーでエラーが発生しました");
   }
+}
+
+// The names of the space kinds in the messages of the move tools.
+const SPACE_KIND_NAMES: Record<SpaceKind, string> = {
+  personal: "個人（本人のみ）",
+  admin: "管理者のみ",
+  everyone: "全員",
+};
+
+function visibilityNotAcknowledgedMessage(result: VisibilityNotAcknowledged): string {
+  return (
+    `移動先のスペース「${result.destName}」（${SPACE_KIND_NAMES[result.to]}）は、` +
+    `移動元（${SPACE_KIND_NAMES[result.from]}）より多くの人が見られます。` +
+    "ページの過去の版（履歴）も見られるようになります。" +
+    "利用者に確認してから acknowledge_wider_visibility: true を付けて呼んでください"
+  );
 }
 
 // openWorldHint defaults to true, so it is set explicitly: the tools only touch this wiki.
@@ -228,7 +248,7 @@ export function registerTools(server: McpServer, { db, user }: ToolDeps): void {
       description:
         "Update the title, the Markdown body and/or the folder of a page. " +
         "folder_id moves the page to a folder in the same space; null moves it to the top level. " +
-        "A page cannot be moved to another space. " +
+        "To move a page to another space, use move_page. " +
         "version must be the current version from get_page; if someone else updated the page first, " +
         "the call fails and nothing is changed. body replaces the whole body. " +
         "The previous title and body are kept as a revision (the newest 20 per page); " +
@@ -293,6 +313,81 @@ export function registerTools(server: McpServer, { db, user }: ToolDeps): void {
         return errorResult(
           `${versionConflictMessage}。get_page で最新の version と本文を取得し、変更を反映し直してから update_page を呼んでください`,
         );
+      }),
+  );
+
+  // Moves that narrow the visibility (e.g. everyone to personal) need no acknowledgement: other users stop
+  // seeing the page, but nothing is deleted and it can be moved back, so the tools are not destructive.
+  server.registerTool(
+    "move_page",
+    {
+      description:
+        "Move a page to another space (or to another folder of its space). The user needs access to both spaces. " +
+        "Who can see the page changes to the destination space's kind (see list_spaces), and the earlier " +
+        "versions of the page (revisions) move with it and become visible there too. " +
+        "Moving to a space that more people can see (personal to admin or everyone, admin to everyone) fails " +
+        "unless acknowledge_wider_visibility is true: ask the user to confirm first, then call again with it. " +
+        "Moving to a space that fewer people can see hides the page from the other users. " +
+        "version must be the current version from get_page; the version is incremented. " +
+        "Returns the page's metadata without the body.",
+      inputSchema: {
+        page_id: z.string().describe("The id of a page returned by list_pages"),
+        // Not z.number().int(): normalizeVersion checks it, so that the message is the same as in the REST API.
+        version: z
+          .number()
+          .describe(
+            "The current version of the page from get_page, an integer of 1 or more. " +
+              "If someone else updated the page first, the call fails",
+          ),
+        space_id: z.string().describe("The id of the destination space, returned by list_spaces"),
+        folder_id: z
+          .string()
+          .nullable()
+          .optional()
+          .describe(
+            "The id of a folder in the destination space, from list_folders. " +
+              "Omit or null to move the page to the top level of the destination space",
+          ),
+        acknowledge_wider_visibility: z
+          .boolean()
+          .optional()
+          .describe(
+            "Set to true only after the user has confirmed that more people may see the page and its revisions",
+          ),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    ({ page_id, version, space_id, folder_id, acknowledge_wider_visibility }) =>
+      guard("move_page", async () => {
+        // Validated in the same order as POST /api/v1/pages/:id/move.
+        const normalizedVersion = normalizeVersion(version);
+        if (normalizedVersion === null) return errorResult(invalidVersionMessage);
+        const spaceId = normalizeMoveSpaceId(space_id);
+        if (spaceId === null) return errorResult(invalidMoveSpaceIdMessage);
+        const folderId = normalizeFolderRef(folder_id);
+        if (!folderId.ok) return errorResult(invalidFolderIdMessage);
+        const result = await movePage(
+          db,
+          user,
+          page_id,
+          { version: normalizedVersion, spaceId, folderId: folderId.value ?? null },
+          { requireVisibilityAck: true, acknowledged: acknowledge_wider_visibility === true },
+        );
+        if (result.ok) return jsonResult(toApiPageSummary(result.page));
+        switch (result.error) {
+          case "not_found":
+            return errorResult(pageNotFoundMessage);
+          case "space_not_found":
+            return errorResult(moveSpaceNotFoundMessage);
+          case "folder_not_found":
+            return errorResult(parentNotFoundOnMoveMessage);
+          case "version_conflict":
+            return errorResult(
+              `${versionConflictMessage}。get_page で最新の version を取得してから move_page を呼んでください`,
+            );
+          case "visibility_not_acknowledged":
+            return errorResult(visibilityNotAcknowledgedMessage(result));
+        }
       }),
   );
 
@@ -500,7 +595,8 @@ export function registerTools(server: McpServer, { db, user }: ToolDeps): void {
       description:
         "Rename a folder and/or move it to another folder in the same space. " +
         "parent_id null moves it to the top level of the space. A folder cannot be moved into itself or " +
-        "one of its subfolders, or to another space. Its pages and subfolders move with it. Returns the folder.",
+        "one of its subfolders. To move a folder to another space, use move_folder. " +
+        "Its pages and subfolders move with it. Returns the folder.",
       inputSchema: {
         folder_id: z.string().describe("The id of a folder returned by list_folders"),
         name: z
@@ -542,6 +638,69 @@ export function registerTools(server: McpServer, { db, user }: ToolDeps): void {
             return errorResult(parentNotFoundOnMoveMessage);
           case "folder_cycle":
             return errorResult(folderCycleMessage);
+        }
+      }),
+  );
+
+  // As with move_page, moves that narrow the visibility need no acknowledgement.
+  server.registerTool(
+    "move_folder",
+    {
+      description:
+        "Move a folder to another space (or to another folder of its space) with everything in it: its subfolders " +
+        "and pages, including pages in the trash, keep their place inside it. The user needs access to both spaces. " +
+        "Who can see the contents changes to the destination space's kind (see list_spaces), and the earlier " +
+        "versions of the pages (revisions) move with them and become visible there too. " +
+        "Moving to a space that more people can see (personal to admin or everyone, admin to everyone) fails " +
+        "unless acknowledge_wider_visibility is true: ask the user to confirm first, then call again with it. " +
+        "Moving to a space that fewer people can see hides the contents from the other users. " +
+        "A folder cannot be moved into itself or one of its subfolders. Returns the folder.",
+      inputSchema: {
+        folder_id: z.string().describe("The id of a folder returned by list_folders"),
+        space_id: z.string().describe("The id of the destination space, returned by list_spaces"),
+        parent_id: z
+          .string()
+          .nullable()
+          .optional()
+          .describe(
+            "The id of a folder in the destination space to move this folder into, from list_folders. " +
+              "Omit or null to move it to the top level of the destination space",
+          ),
+        acknowledge_wider_visibility: z
+          .boolean()
+          .optional()
+          .describe(
+            "Set to true only after the user has confirmed that more people may see the contents and their revisions",
+          ),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    ({ folder_id, space_id, parent_id, acknowledge_wider_visibility }) =>
+      guard("move_folder", async () => {
+        // Validated in the same order as POST /api/v1/folders/:id/move.
+        const spaceId = normalizeMoveSpaceId(space_id);
+        if (spaceId === null) return errorResult(invalidMoveSpaceIdMessage);
+        const parentId = normalizeFolderRef(parent_id);
+        if (!parentId.ok) return errorResult(invalidParentIdMessage);
+        const result = await moveFolder(
+          db,
+          user,
+          folder_id,
+          { spaceId, parentId: parentId.value ?? null },
+          { requireVisibilityAck: true, acknowledged: acknowledge_wider_visibility === true },
+        );
+        if (result.ok) return jsonResult(toApiFolder(result.folder));
+        switch (result.error) {
+          case "not_found":
+            return errorResult(folderNotFoundMessage);
+          case "space_not_found":
+            return errorResult(moveSpaceNotFoundMessage);
+          case "parent_not_found":
+            return errorResult(parentNotFoundOnMoveMessage);
+          case "folder_cycle":
+            return errorResult(folderCycleMessage);
+          case "visibility_not_acknowledged":
+            return errorResult(visibilityNotAcknowledgedMessage(result));
         }
       }),
   );

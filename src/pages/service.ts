@@ -1,13 +1,18 @@
 import { and, eq, isNull, sql, type SQL } from "drizzle-orm";
-import type { CreatePageInput, UpdatePageInput } from "../api/types";
+import type { CreatePageInput, MovePageInput, UpdatePageInput } from "../api/types";
 import { clock } from "../clock";
 import type { Db } from "../db/client";
 import { isForeignKeyViolation } from "../db/errors";
-import { folders, pages, type PageRow, type UserRow } from "../db/schema";
+import { folders, pages, spaces, type PageRow, type UserRow } from "../db/schema";
 import { folderExistsInSpace } from "../folders/queries";
-import { canAccessSpace } from "../spaces/access";
+import {
+  canAccessSpace,
+  visibilityNotAcknowledged,
+  type MoveOptions,
+  type VisibilityNotAcknowledged,
+} from "../spaces/access";
 import { findSpaceById } from "../spaces/queries";
-import { findAccessiblePage, findPageById } from "./queries";
+import { findAccessiblePage, findAccessiblePageIncludingTrash, findPageById } from "./queries";
 import { insertRevisionQuery, pruneRevisionsQuery } from "./revisions";
 
 // Shared by the REST API and the MCP tools. Input is validated by the callers (see validation.ts).
@@ -25,39 +30,54 @@ export async function createPage(
   const space = await findSpaceById(db, spaceId);
   // Spaces the user cannot access are reported as missing so that their existence is not revealed.
   if (!space || !canAccessSpace(user, space)) return { ok: false, error: "space_not_found" };
-  // Assumes that the space of a folder never changes, so the check cannot go stale before the insert.
-  // When folders can move between spaces (M3), make this one conditional INSERT ... SELECT ... WHERE EXISTS.
   if (input.folderId !== null && !(await folderExistsInSpace(db, input.folderId, space.id))) {
     return { ok: false, error: "folder_not_found" };
   }
 
   const now = clock.now();
+  // One conditional INSERT ... SELECT, so that a folder moved to another space (or a space deleted) after
+  // the checks above inserts nothing. drizzle checks that the keys are those of the table, in the same order.
+  const conditions: SQL[] = [eq(spaces.id, space.id)];
+  if (input.folderId !== null) {
+    conditions.push(
+      sql`EXISTS (SELECT 1 FROM ${folders} f WHERE f.id = ${input.folderId} AND f.space_id = ${space.id})`,
+    );
+  }
+  let page: PageRow | undefined;
   try {
-    const page = await db
+    page = await db
       .insert(pages)
-      .values({
-        id: crypto.randomUUID(),
-        spaceId: space.id,
-        folderId: input.folderId,
-        title: input.title,
-        body: input.body,
-        version: 1,
-        createdBy: user.id,
-        updatedBy: user.id,
-        createdAt: now,
-        updatedAt: now,
-      })
+      .select(
+        db
+          .select({
+            id: sql<string>`${crypto.randomUUID()}`.as("id"),
+            spaceId: sql<string>`${space.id}`.as("space_id"),
+            folderId: sql<string | null>`${input.folderId}`.as("folder_id"),
+            title: sql<string>`${input.title}`.as("title"),
+            body: sql<string>`${input.body}`.as("body"),
+            version: sql<number>`1`.as("version"),
+            createdBy: sql<string>`${user.id}`.as("created_by"),
+            updatedBy: sql<string>`${user.id}`.as("updated_by"),
+            createdAt: sql<number>`${now}`.as("created_at"),
+            updatedAt: sql<number>`${now}`.as("updated_at"),
+            deletedAt: sql<number | null>`NULL`.as("deleted_at"),
+            deletedBy: sql<string | null>`NULL`.as("deleted_by"),
+          })
+          .from(spaces)
+          .where(and(...conditions)),
+      )
       .returning()
       .get();
-    return { ok: true, page };
   } catch (error) {
-    // The folder or the space was deleted after the checks above (or the user, whose session ends with it).
+    // The user was deleted after the checks above (the session ends with it).
     if (!isForeignKeyViolation(error)) throw error;
-    if (input.folderId !== null && !(await folderExistsInSpace(db, input.folderId, space.id))) {
-      return { ok: false, error: "folder_not_found" };
-    }
-    return { ok: false, error: "space_not_found" };
   }
+  if (page) return { ok: true, page };
+  // The folder was moved or deleted, or the space was deleted, after the checks above.
+  if (input.folderId !== null && !(await folderExistsInSpace(db, input.folderId, space.id))) {
+    return { ok: false, error: "folder_not_found" };
+  }
+  return { ok: false, error: "space_not_found" };
 }
 
 export type UpdatePageResult =
@@ -127,5 +147,85 @@ export async function updatePage(
   }
   if (current.version !== input.version) return { ok: false, error: "version_conflict" };
   if (typeof folderId === "string") return { ok: false, error: "folder_not_found" };
+  return { ok: false, error: "version_conflict" };
+}
+
+export type MovePageResult =
+  | { ok: true; page: PageRow }
+  | { ok: false; error: "not_found" | "space_not_found" | "folder_not_found" | "version_conflict" }
+  | VisibilityNotAcknowledged;
+
+// The condition of the UPDATE in movePage. Like pageUpdateWhere, space_id keeps the write inside the space
+// whose access was checked. The destination space and the folder in it must exist at the time of the write.
+function pageMoveWhere(
+  page: Pick<PageRow, "id" | "spaceId">,
+  version: number,
+  destSpaceId: string,
+  folderId: string | null,
+): SQL | undefined {
+  const conditions: SQL[] = [
+    eq(pages.id, page.id),
+    eq(pages.spaceId, page.spaceId),
+    eq(pages.version, version),
+    isNull(pages.deletedAt),
+    sql`EXISTS (SELECT 1 FROM ${spaces} s WHERE s.id = ${destSpaceId})`,
+  ];
+  if (folderId !== null) {
+    conditions.push(sql`EXISTS (SELECT 1 FROM ${folders} f WHERE f.id = ${folderId} AND f.space_id = ${destSpaceId})`);
+  }
+  return and(...conditions);
+}
+
+// Moves the page to a folder (or the top level, for null) of another space, or of the same space.
+// The user needs access to both spaces. The revisions refer to the page, so they move with it; the title
+// and body do not change, so no revision is kept, but the version is incremented.
+export async function movePage(
+  db: Db,
+  user: UserRow,
+  pageId: string,
+  input: MovePageInput,
+  options: MoveOptions,
+): Promise<MovePageResult> {
+  const found = await findAccessiblePageIncludingTrash(db, user, pageId);
+  if (!found || found.page.deletedAt !== null) return { ok: false, error: "not_found" };
+  const { page, space: source } = found;
+  const dest = await findSpaceById(db, input.spaceId);
+  // Spaces the user cannot access are reported as missing so that their existence is not revealed.
+  if (!dest || !canAccessSpace(user, dest)) return { ok: false, error: "space_not_found" };
+  // Checked with the same source space as the condition of the write: if the page moves to another space
+  // after this, the write changes nothing.
+  const notAcknowledged = visibilityNotAcknowledged(source, dest, options);
+  if (notAcknowledged) return notAcknowledged;
+
+  let updated: PageRow | undefined;
+  try {
+    updated = await db
+      .update(pages)
+      .set({
+        spaceId: dest.id,
+        folderId: input.folderId,
+        version: sql`${pages.version} + 1`,
+        updatedBy: user.id,
+        updatedAt: clock.now(),
+      })
+      .where(pageMoveWhere(page, input.version, dest.id, input.folderId))
+      .returning()
+      .get();
+  } catch (error) {
+    // The user was deleted after the checks above (the session ends with it). A backstop: the condition
+    // already requires the destination space and folder.
+    if (!isForeignKeyViolation(error)) throw error;
+    return { ok: false, error: "space_not_found" };
+  }
+  if (updated) return { ok: true, page: updated };
+
+  // Access is not checked again: the page and the destination space were visible just before.
+  const current = await findPageById(db, page.id);
+  if (!current || current.spaceId !== page.spaceId || current.deletedAt !== null) {
+    return { ok: false, error: "not_found" };
+  }
+  if (!(await findSpaceById(db, dest.id))) return { ok: false, error: "space_not_found" };
+  if (current.version !== input.version) return { ok: false, error: "version_conflict" };
+  if (input.folderId !== null) return { ok: false, error: "folder_not_found" };
   return { ok: false, error: "version_conflict" };
 }

@@ -35,7 +35,7 @@ export function SpaceView({ client, id }: { client: ApiClient; id: string }) {
           </Link>
         )}
       </div>
-      <FolderActions client={client} spaceId={space.id} folders={folders} folder={null} onReload={reload} />
+      <FolderActions client={client} space={space} folders={folders} folder={null} onReload={reload} />
       {/* Only the top level; the rest is shown on the folder screens. */}
       <EntryList
         folders={childFolders(folders, null)}
