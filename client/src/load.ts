@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type {
+  Attachment,
   Folder,
   Page,
   PageRevision,
@@ -269,7 +270,7 @@ export async function loadSearchView(client: ApiClient, query: string): Promise<
   return { kind: "ready", data: { query: q, hits: result.value.hits, hasMore: result.value.has_more, spaceNames } };
 }
 
-// A list loaded by a part of a screen (the move panels), not by the screen itself.
+// A list loaded by a part of a screen (the move panels and the attachments panel), not by the screen itself.
 export type ListResult<T> = { kind: "ok"; value: T } | { kind: "error" } | { kind: "redirecting" };
 
 // The spaces the user can access, to choose the destination of a move from. Never rejects.
@@ -287,6 +288,15 @@ export async function loadFolderList(client: ApiClient, spaceId: string): Promis
   if (list.kind === "redirecting") return list;
   if (list.kind !== "ok") return { kind: "error" };
   return { kind: "ok", value: list.value.folders };
+}
+
+// The attachments of a page, for the attachments panel of the edit screen. Never rejects.
+export async function loadAttachmentList(client: ApiClient, pageId: string): Promise<ListResult<Attachment[]>> {
+  if (!isValidId(pageId)) return { kind: "error" };
+  const list = await request(() => client.api.v1.pages[":id"].attachments.$get({ param: { id: pageId } }));
+  if (list.kind === "redirecting") return list;
+  if (list.kind !== "ok") return { kind: "error" };
+  return { kind: "ok", value: list.value.attachments };
 }
 
 // Loads a screen's data while the component is mounted, and again when key changes or reload is called.

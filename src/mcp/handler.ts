@@ -61,7 +61,7 @@ export const mcpHandler = {
       // Avoids compiling Ajv on every request.
       { jsonSchemaValidator: new CfWorkerJsonSchemaValidator() },
     );
-    registerTools(server, { db, user });
+    registerTools(server, { db, user, attachments: env.ATTACHMENTS });
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,

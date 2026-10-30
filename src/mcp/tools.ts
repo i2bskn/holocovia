@@ -3,6 +3,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { asc } from "drizzle-orm";
 import { z } from "zod";
 import type {
+  AttachmentList,
   FolderList,
   PageList,
   PageRevisionList,
@@ -13,6 +14,20 @@ import type {
   UpdateFolderInput,
   UpdatePageInput,
 } from "../api/types";
+import { createAttachment, listAttachments } from "../attachments/service";
+import {
+  checkAttachmentContent,
+  decodeBase64,
+  emptyFileMessage,
+  invalidBase64Message,
+  invalidFilenameMessage,
+  MCP_ATTACHMENT_MAX_BYTES,
+  MCP_MAX_BASE64_LENGTH,
+  mcpFileTooLargeMessage,
+  normalizeAttachmentFilename,
+  unsupportedTypeMessage,
+  withAttachmentExtension,
+} from "../attachments/validation";
 import { describeError } from "../auth/middleware";
 import type { Db } from "../db/client";
 import { spaces, type UserRow } from "../db/schema";
@@ -55,6 +70,7 @@ import {
   versionConflictMessage,
 } from "../pages/validation";
 import {
+  toApiAttachment,
   toApiFolder,
   toApiPage,
   toApiPageRevision,
@@ -67,7 +83,7 @@ import {
 import { accessibleSpacesWhere, canAccessSpace, type VisibilityNotAcknowledged } from "../spaces/access";
 import { findSpaceById } from "../spaces/queries";
 
-export type ToolDeps = { db: Db; user: UserRow };
+export type ToolDeps = { db: Db; user: UserRow; attachments: R2Bucket };
 
 // Results are JSON text only. No structuredContent: a page body can be up to 512KB, and
 // sending it twice would double the response.
@@ -101,7 +117,7 @@ function visibilityNotAcknowledgedMessage(result: VisibilityNotAcknowledged): st
   return (
     `移動先のスペース「${result.destName}」（${SPACE_KIND_NAMES[result.to]}）は、` +
     `移動元（${SPACE_KIND_NAMES[result.from]}）より多くの人が見られます。` +
-    "ページの過去の版（履歴）も見られるようになります。" +
+    "ページの過去の版（履歴）と添付ファイルも見られるようになります。" +
     "利用者に確認してから acknowledge_wider_visibility: true を付けて呼んでください"
   );
 }
@@ -110,7 +126,7 @@ function visibilityNotAcknowledgedMessage(result: VisibilityNotAcknowledged): st
 const readOnlyAnnotations = { readOnlyHint: true, openWorldHint: false };
 
 // Access checks go through spaces/access.ts and pages/queries.ts only, as in the REST API.
-export function registerTools(server: McpServer, { db, user }: ToolDeps): void {
+export function registerTools(server: McpServer, { db, user, attachments }: ToolDeps): void {
   server.registerTool(
     "list_spaces",
     {
@@ -531,6 +547,72 @@ export function registerTools(server: McpServer, { db, user }: ToolDeps): void {
         return errorResult(
           `${versionConflictMessage}。get_page で最新の version を取得してから restore_page_revision を呼んでください`,
         );
+      }),
+  );
+
+  server.registerTool(
+    "upload_attachment",
+    {
+      description:
+        "Attach an image (PNG, JPEG, GIF or WebP) or a PDF to a page, up to 2MB; larger files can be attached " +
+        "from the page editor of the Web UI. The type is decided from the contents, and the extension of the " +
+        "type is added to filename if it is missing. Anyone who can read the page can read the file. " +
+        "Returns the attachment with markdown, the Markdown that shows or links the file: " +
+        "to put it in the page body, use update_page. Attachments cannot be deleted with these tools.",
+      inputSchema: {
+        page_id: z.string().describe("The id of a page returned by list_pages"),
+        filename: z.string().describe("The file name, 1 to 250 characters"),
+        // Not .max(): the length is checked in the handler, so that the message is in Japanese like the others.
+        content_base64: z
+          .string()
+          .describe("The contents of the file in standard base64 (not base64url). Whitespace and line breaks are ignored"),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    ({ page_id, filename, content_base64 }) =>
+      guard("upload_attachment", async () => {
+        // Validated in the same order as POST /api/v1/pages/:id/attachments.
+        const normalizedFilename = normalizeAttachmentFilename(filename);
+        if (normalizedFilename === null) return errorResult(invalidFilenameMessage);
+        if (content_base64.length > MCP_MAX_BASE64_LENGTH) return errorResult(mcpFileTooLargeMessage);
+        const bytes = decodeBase64(content_base64);
+        if (bytes === null) return errorResult(invalidBase64Message);
+        const checked = checkAttachmentContent(bytes, MCP_ATTACHMENT_MAX_BYTES);
+        if (!checked.ok) {
+          switch (checked.error) {
+            case "empty_file":
+              return errorResult(emptyFileMessage);
+            case "file_too_large":
+              return errorResult(mcpFileTooLargeMessage);
+            case "unsupported_type":
+              return errorResult(unsupportedTypeMessage);
+          }
+        }
+        const result = await createAttachment(db, attachments, user, page_id, {
+          filename: withAttachmentExtension(normalizedFilename, checked.contentType),
+          contentType: checked.contentType,
+          bytes,
+        });
+        if (!result.ok) return errorResult(pageNotFoundMessage);
+        return jsonResult(toApiAttachment(result.attachment));
+      }),
+  );
+
+  server.registerTool(
+    "list_attachments",
+    {
+      description:
+        "List the files attached to a page, oldest first. Each has a filename, a content_type, a size in bytes, " +
+        "the url of its contents and markdown, the Markdown that shows or links the file in a page body.",
+      inputSchema: { page_id: z.string().describe("The id of a page returned by list_pages") },
+      annotations: readOnlyAnnotations,
+    },
+    ({ page_id }) =>
+      guard("list_attachments", async () => {
+        const result = await listAttachments(db, user, page_id);
+        if (!result.ok) return errorResult(pageNotFoundMessage);
+        const body: AttachmentList = { attachments: result.attachments.map(toApiAttachment) };
+        return jsonResult(body);
       }),
   );
 

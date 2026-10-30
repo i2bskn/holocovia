@@ -314,3 +314,29 @@ export type TrashList = {
   // Most recently deleted first.
   pages: TrashedPage[];
 };
+
+// A file attached to a page. It can be read by everyone who can read the page, and not while the page is
+// in the trash.
+export type Attachment = {
+  id: string;
+  page_id: string;
+  // Normalized by the server, with the extension of content_type.
+  filename: string;
+  // Decided by the server from the contents.
+  content_type: "image/png" | "image/jpeg" | "image/gif" | "image/webp" | "application/pdf";
+  // Bytes.
+  size: number;
+  // null once the user is deleted.
+  created_by: string | null;
+  // UNIX time in milliseconds.
+  created_at: number;
+  // Where the contents are served: "/api/v1/attachments/{id}".
+  url: string;
+  // Markdown to put in the page body: "![name](url)" for images, "[name](url)" for PDF.
+  markdown: string;
+};
+
+export type AttachmentList = {
+  // Oldest first.
+  attachments: Attachment[];
+};

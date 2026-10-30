@@ -43,3 +43,23 @@ export function folderOptions(folders: Folder[], exclude?: ReadonlySet<string>):
     }))
     .sort((a, b) => a.label.localeCompare(b.label, "ja"));
 }
+
+// A range of the body textarea, as selectionStart and selectionEnd.
+export type TextSelection = { start: number; end: number };
+
+// Puts markdown in place of the selection (at the end of the body for null), on a line of its own: a line
+// break is added before and after it unless it is at the start or end of a line. cursor is the position
+// right after the inserted text.
+export function insertMarkdown(
+  body: string,
+  selection: TextSelection | null,
+  markdown: string,
+): { body: string; cursor: number } {
+  const start = Math.min(Math.max(selection?.start ?? body.length, 0), body.length);
+  const end = Math.min(Math.max(selection?.end ?? body.length, start), body.length);
+  const before = body.slice(0, start);
+  const after = body.slice(end);
+  const head = `${before}${before !== "" && !before.endsWith("\n") ? "\n" : ""}${markdown}`;
+  const tail = `${after !== "" && !after.startsWith("\n") ? "\n" : ""}${after}`;
+  return { body: head + tail, cursor: head.length };
+}

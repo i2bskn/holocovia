@@ -1,5 +1,6 @@
 import { Hono, type Context } from "hono";
 import type {
+  AttachmentList,
   CreatePageInput,
   CreatePageRequest,
   MovePageInput,
@@ -10,6 +11,15 @@ import type {
   UpdatePageRequest,
 } from "../api/types";
 import type { AppEnv } from "../env";
+import { createAttachment, listAttachments } from "../attachments/service";
+import {
+  ATTACHMENT_MAX_BYTES,
+  checkAttachmentContent,
+  emptyFileMessage,
+  fileTooLargeMessage,
+  unsupportedTypeMessage,
+  withAttachmentExtension,
+} from "../attachments/validation";
 import { apiError, requireAdmin, requireUser } from "../auth/middleware";
 import {
   folderNotFoundMessage,
@@ -41,7 +51,8 @@ import {
   revisionNotFoundMessage,
   versionConflictMessage,
 } from "../pages/validation";
-import { jsonBody, toApiPage, toApiPageRevision, toApiPageRevisionSummary } from "./api";
+import { jsonBody, toApiAttachment, toApiPage, toApiPageRevision, toApiPageRevisionSummary } from "./api";
+import { attachmentBodyLimit, attachmentFilenameQuery } from "./attachments";
 
 function invalidTitle(c: Context<AppEnv>): Response {
   return apiError(c, 400, "invalid_title", invalidTitleMessage);
@@ -169,6 +180,35 @@ const pagesApi = new Hono<AppEnv>()
     if (result.error === "not_found") return apiError(c, 404, "not_found", pageNotFoundMessage);
     if (result.error === "revision_not_found") return apiError(c, 404, "revision_not_found", revisionNotFoundMessage);
     return apiError(c, 409, "version_conflict", versionConflictMessage);
+  })
+  .get("/:id/attachments", requireUser, async (c) => {
+    const result = await listAttachments(c.get("db"), c.get("user"), c.req.param("id"));
+    if (!result.ok) return apiError(c, 404, "not_found", pageNotFoundMessage);
+    const body: AttachmentList = { attachments: result.attachments.map(toApiAttachment) };
+    return c.json(body, 200);
+  })
+  // Attaches a file to the page. The body is the file itself, not multipart, which would cost CPU time to
+  // parse. The type is decided from the contents; the Content-Type of the request is not used.
+  .post("/:id/attachments", requireUser, attachmentFilenameQuery, attachmentBodyLimit, async (c) => {
+    const bytes = new Uint8Array(await c.req.arrayBuffer());
+    const checked = checkAttachmentContent(bytes, ATTACHMENT_MAX_BYTES);
+    if (!checked.ok) {
+      switch (checked.error) {
+        case "empty_file":
+          return apiError(c, 400, "empty_file", emptyFileMessage);
+        case "file_too_large":
+          return apiError(c, 413, "file_too_large", fileTooLargeMessage);
+        case "unsupported_type":
+          return apiError(c, 400, "unsupported_type", unsupportedTypeMessage);
+      }
+    }
+    const result = await createAttachment(c.get("db"), c.env.ATTACHMENTS, c.get("user"), c.req.param("id"), {
+      filename: withAttachmentExtension(c.req.valid("query").filename, checked.contentType),
+      contentType: checked.contentType,
+      bytes,
+    });
+    if (!result.ok) return apiError(c, 404, "not_found", pageNotFoundMessage);
+    return c.json(toApiAttachment(result.attachment), 201);
   })
   // Moves the page to the trash of its space. It can be restored for 30 days (see pages/trash.ts).
   .delete("/:id", requireUser, async (c) => {

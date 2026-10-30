@@ -27,7 +27,7 @@ export function widerVisibilityWarning(sourceKind: SpaceKind, dest: Pick<Space, 
   return (
     `移動先の「${spaceDisplayName(dest)}」は、今のスペースより多くの人が見られます` +
     `（${SPACE_KIND_LABELS[sourceKind]} → ${SPACE_KIND_LABELS[dest.kind]}）。` +
-    "ページの過去の版（履歴）も見られるようになります。"
+    "ページの過去の版（履歴）と添付ファイルも見られるようになります。"
   );
 }
 
@@ -48,4 +48,12 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export function formatPurgeRemaining(purgeAfter: number, now: number): string {
   const days = Math.ceil((purgeAfter - now) / DAY_MS);
   return days <= 0 ? "まもなく完全に削除されます" : `あと ${days} 日で完全に削除されます`;
+}
+
+// A file size in bytes: under 1KB in bytes, under 1MB in KB and otherwise in MB, with one decimal place
+// (1KB = 1024 bytes).
+export function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }

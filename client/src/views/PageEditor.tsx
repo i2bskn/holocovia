@@ -1,6 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from "react";
 import { type PageDraft, browserStorage, readDraft, removeDraft, writeDraft } from "../drafts";
-import type { PageFields } from "../edit";
+import type { PageFields, TextSelection } from "../edit";
 import { formatDateTime } from "../format";
 import { Markdown } from "../Markdown";
 import { setNavigationGuard } from "../router";
@@ -231,6 +231,8 @@ export function PageEditor({
   alert,
   draftFailed,
   origin,
+  attachments,
+  onBodySelect,
   onSubmit,
   onCancel,
 }: {
@@ -250,6 +252,10 @@ export function PageEditor({
   alert: ReactNode | null;
   draftFailed: boolean;
   origin: string;
+  // Shown below the body: the attachments panel, or a note on the creation screen.
+  attachments?: ReactNode;
+  // Called with the selection of the body whenever it changes, so that the screen can insert at it.
+  onBodySelect?: (selection: TextSelection) => void;
   onSubmit: () => void;
   onCancel: () => void;
 }) {
@@ -318,7 +324,13 @@ export function PageEditor({
           className="editor-body"
           aria-label="本文"
           value={fields.body}
-          onChange={(event) => onChange({ ...fields, body: event.target.value })}
+          onChange={(event) => {
+            onChange({ ...fields, body: event.target.value });
+            onBodySelect?.({ start: event.target.selectionStart, end: event.target.selectionEnd });
+          }}
+          onSelect={(event) =>
+            onBodySelect?.({ start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd })
+          }
           disabled={inputsDisabled}
           spellCheck={false}
         />
@@ -333,6 +345,7 @@ export function PageEditor({
         {tab === "preview" &&
           (fields.body === "" ? <p>プレビューする本文がありません</p> : <Markdown body={fields.body} origin={origin} />)}
       </div>
+      {attachments}
       {/* Not a form: Enter in the title must not save a page that is still being written. */}
       <div className="editor-actions">
         <button type="button" onClick={onSubmit} disabled={inputsDisabled}>

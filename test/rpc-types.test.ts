@@ -1,6 +1,8 @@
 import { hc, type InferRequestType, type InferResponseType } from "hono/client";
 import { describe, expectTypeOf, it } from "vitest";
 import type {
+  Attachment,
+  AttachmentList,
   CreateFolderRequest,
   CreatePageRequest,
   CreateSpaceRequest,
@@ -41,6 +43,7 @@ type UpdateFolderJson = InferRequestType<(typeof client.api.v1.folders)[":id"]["
 type MovePageJson = InferRequestType<(typeof client.api.v1.pages)[":id"]["move"]["$post"]>["json"];
 type MoveFolderJson = InferRequestType<(typeof client.api.v1.folders)[":id"]["move"]["$post"]>["json"];
 type SearchQuery = InferRequestType<typeof client.api.v1.search.$get>["query"];
+type UploadAttachment = InferRequestType<(typeof client.api.v1.pages)[":id"]["attachments"]["$post"]>;
 type RestoreRevision = InferRequestType<
   (typeof client.api.v1.pages)[":id"]["revisions"][":version"]["restore"]["$post"]
 >;
@@ -153,6 +156,21 @@ describe("AppType", () => {
     expectTypeOf<InferResponseType<(typeof client.api.v1.pages)[":id"]["restore"]["$post"], 200>>().toEqualTypeOf<Page>();
     expectTypeOf<InferResponseType<(typeof client.api.v1.pages)[":id"]["move"]["$post"], 200>>().toEqualTypeOf<Page>();
     expectTypeOf<InferResponseType<(typeof client.api.v1.folders)[":id"]["move"]["$post"], 200>>().toEqualTypeOf<Folder>();
+  });
+
+  it("types the attachments", () => {
+    expectTypeOf<UploadAttachment["query"]>().toEqualTypeOf<{ filename: string }>();
+    // @ts-expect-error filename is required
+    const withoutFilename: UploadAttachment["query"] = {};
+    void withoutFilename;
+    expectTypeOf<
+      InferResponseType<(typeof client.api.v1.pages)[":id"]["attachments"]["$post"], 201>
+    >().toEqualTypeOf<Attachment>();
+    expectTypeOf<
+      InferResponseType<(typeof client.api.v1.pages)[":id"]["attachments"]["$get"], 200>
+    >().toEqualTypeOf<AttachmentList>();
+    const param: InferRequestType<(typeof client.api.v1.attachments)[":id"]["$delete"]>["param"] = { id: "a1" };
+    void param;
   });
 
   it("types the trash", () => {

@@ -1,5 +1,6 @@
 import type { Context, MiddlewareHandler } from "hono";
 import type {
+  Attachment,
   Folder,
   Page,
   PageRevision,
@@ -10,7 +11,8 @@ import type {
   TrashedPage,
   User,
 } from "../api/types";
-import type { FolderRow, PageRevisionRow, PageRow, SpaceRow, UserRow } from "../db/schema";
+import { escapeMarkdownText } from "../attachments/validation";
+import type { AttachmentRow, FolderRow, PageRevisionRow, PageRow, SpaceRow, UserRow } from "../db/schema";
 import type { PageSummaryRow } from "../pages/queries";
 import type { RevisionSummaryRow } from "../pages/revisions";
 import type { SearchHitRow } from "../pages/search";
@@ -104,6 +106,23 @@ export function toApiPageRevision(revision: PageRevisionRow): PageRevision {
 
 export function toApiSearchHit(hit: SearchHitRow): SearchHit {
   return { ...toApiPageSummary(hit), snippet: hit.snippet };
+}
+
+export function toApiAttachment(attachment: AttachmentRow): Attachment {
+  const url = `/api/v1/attachments/${attachment.id}`;
+  const text = escapeMarkdownText(attachment.filename);
+  const markdown = attachment.contentType === "application/pdf" ? `[${text}](${url})` : `![${text}](${url})`;
+  return {
+    id: attachment.id,
+    page_id: attachment.pageId,
+    filename: attachment.filename,
+    content_type: attachment.contentType,
+    size: attachment.size,
+    created_by: attachment.createdBy,
+    created_at: attachment.createdAt,
+    url,
+    markdown,
+  };
 }
 
 // Returns the JSON body if it is an object, otherwise null.

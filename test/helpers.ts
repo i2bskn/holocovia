@@ -16,6 +16,7 @@ export const db = createDb(env.DB);
 export async function resetDb(): Promise<void> {
   await env.DB.batch([
     env.DB.prepare("DELETE FROM sessions"),
+    env.DB.prepare("DELETE FROM attachments"),
     env.DB.prepare("DELETE FROM page_revisions"),
     env.DB.prepare("DELETE FROM pages"),
     // One statement, so the foreign key from parent_id is checked only after all folders are gone.
@@ -23,6 +24,15 @@ export async function resetDb(): Promise<void> {
     env.DB.prepare("DELETE FROM spaces"),
     env.DB.prepare("DELETE FROM users"),
   ]);
+}
+
+// Deletes every object in the R2 bucket of attachments, including keys outside attachments/.
+export async function resetAttachments(): Promise<void> {
+  for (;;) {
+    const listed = await env.ATTACHMENTS.list();
+    if (listed.objects.length === 0) return;
+    await env.ATTACHMENTS.delete(listed.objects.map((object) => object.key));
+  }
 }
 
 export const oidcEnv: Partial<Bindings> = {
@@ -39,6 +49,8 @@ export type RequestOptions = {
   headers?: Record<string, string>;
   form?: Record<string, string>;
   json?: unknown;
+  // Sent as is, without a Content-Type.
+  body?: BodyInit;
   env?: Partial<Bindings>;
   // Passed to the Worker as is, without the per-request copy. Overrides env.
   sharedEnv?: Cloudflare.Env;
@@ -48,7 +60,8 @@ export type RequestOptions = {
 
 export async function send(url: string, options: RequestOptions = {}): Promise<Response> {
   const fullUrl = new URL(url, ORIGIN);
-  const method = options.method ?? (options.form || options.json !== undefined ? "POST" : "GET");
+  const method =
+    options.method ?? (options.form || options.json !== undefined || options.body !== undefined ? "POST" : "GET");
   const headers = new Headers(options.headers);
   const origin = options.origin === undefined ? fullUrl.origin : options.origin;
   if (method !== "GET" && method !== "HEAD" && origin !== null) {
@@ -69,6 +82,8 @@ export async function send(url: string, options: RequestOptions = {}): Promise<R
   } else if (options.json !== undefined) {
     body = typeof options.json === "string" ? options.json : JSON.stringify(options.json);
     headers.set("Content-Type", "application/json");
+  } else if (options.body !== undefined) {
+    body = options.body;
   }
   const request = new Request(fullUrl, { method, headers, body, redirect: "manual" });
   // Through the Worker entry point (OAuthProvider), like production.

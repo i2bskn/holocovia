@@ -174,6 +174,7 @@ function PageNewForm({
         alert={alert}
         draftFailed={form.draftFailed}
         origin={origin}
+        attachments={<p className="attachments-note">添付ファイルはページを保存したあと、編集画面から追加できます</p>}
         onSubmit={() => void onSubmit()}
         onCancel={() => navigate(backPath)}
       />

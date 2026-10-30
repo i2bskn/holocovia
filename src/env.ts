@@ -5,6 +5,8 @@ import type { UserRow } from "./db/schema";
 export type Bindings = {
   DB: D1Database;
   OAUTH_KV: KVNamespace;
+  // The contents of attachments. Not checked by loadConfig: `wrangler deploy` always creates it.
+  ATTACHMENTS: R2Bucket;
   // Set by OAuthProvider before it calls the Hono app. Absent when the request origin cannot host
   // OAuth (plain http on a non-loopback host), in which case the app is called directly.
   OAUTH_PROVIDER?: OAuthHelpers;

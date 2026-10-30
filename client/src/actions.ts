@@ -1,4 +1,6 @@
-import type { CreateSpaceRequest, Page, Space } from "../../src/api/types";
+import type { Attachment, CreateSpaceRequest, Page, Space } from "../../src/api/types";
+// A value import from the server code: validation.ts imports nothing else, so no other server code is bundled.
+import { ATTACHMENT_MAX_BYTES, emptyFileMessage, fileTooLargeMessage } from "../../src/attachments/validation";
 import { LoginRequiredError, responseErrorMessage, unexpectedResponseMessage } from "./api";
 import type { PageChanges } from "./edit";
 import type { ApiClient } from "./load";
@@ -316,4 +318,52 @@ export async function renameSpace(client: ApiClient, spaceId: string, name: stri
 // Deletes an empty space other than a personal space. Admins only. Never rejects.
 export async function deleteSpace(client: ApiClient, spaceId: string): Promise<SpaceActionResult> {
   return resourceActionResult(await send(() => client.api.v1.spaces[":id"].$delete({ param: { id: spaceId } })));
+}
+
+export type UploadAttachmentResult =
+  | { kind: "ok"; attachment: Attachment }
+  // The page is missing, in the trash, or not accessible.
+  | { kind: "notFound" }
+  | SendFailure;
+
+// Attaches a file to a page. The body is the file itself; the server decides the type from the contents.
+// Empty files and files over 10MB are rejected here with the server's messages, without sending.
+// The File is sent as is (not as a stream), so that the retry after refreshing the login can send it again.
+// Never rejects.
+export async function uploadAttachment(client: ApiClient, pageId: string, file: File): Promise<UploadAttachmentResult> {
+  if (file.size === 0) return { kind: "error", message: emptyFileMessage };
+  if (file.size > ATTACHMENT_MAX_BYTES) return { kind: "error", message: fileTooLargeMessage };
+  const sent = await send(() =>
+    client.api.v1.pages[":id"].attachments.$post(
+      { param: { id: pageId }, query: { filename: file.name } },
+      { init: { body: file } },
+    ),
+  );
+  if (sent.kind !== "response") return sent;
+  const { res } = sent;
+  if (res.ok) {
+    try {
+      return { kind: "ok", attachment: await res.json() };
+    } catch {
+      return { kind: "error", message: unexpectedResponseMessage(res.status) };
+    }
+  }
+  if (res.status === 404) return { kind: "notFound" };
+  return { kind: "error", message: await responseErrorMessage(res) };
+}
+
+export type DeleteAttachmentResult =
+  | { kind: "ok" }
+  // The attachment is missing (e.g. already deleted), or its page is in the trash or not accessible.
+  | { kind: "notFound" }
+  | SendFailure;
+
+// Deletes an attachment. This cannot be undone. Never rejects.
+export async function deleteAttachment(client: ApiClient, attachmentId: string): Promise<DeleteAttachmentResult> {
+  const sent = await send(() => client.api.v1.attachments[":id"].$delete({ param: { id: attachmentId } }));
+  if (sent.kind !== "response") return sent;
+  const { res } = sent;
+  if (res.ok) return { kind: "ok" };
+  if (res.status === 404) return { kind: "notFound" };
+  return { kind: "error", message: await responseErrorMessage(res) };
 }

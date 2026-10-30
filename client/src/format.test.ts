@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { formatDateTime, formatPurgeRemaining, formatSnippet, spaceDisplayName, widerVisibilityWarning } from "./format";
+import {
+  formatDateTime,
+  formatFileSize,
+  formatPurgeRemaining,
+  formatSnippet,
+  spaceDisplayName,
+  widerVisibilityWarning,
+} from "./format";
 
 describe("spaceDisplayName", () => {
   it("shows personal spaces as 個人スペース", () => {
@@ -49,7 +56,7 @@ describe("widerVisibilityWarning", () => {
   it("warns about a space more people can see, with the kinds and the revisions", () => {
     expect(widerVisibilityWarning("personal", { kind: "everyone", name: "開発" })).toBe(
       "移動先の「開発」は、今のスペースより多くの人が見られます（自分だけ → 全員）。" +
-        "ページの過去の版（履歴）も見られるようになります。",
+        "ページの過去の版（履歴）と添付ファイルも見られるようになります。",
     );
     expect(widerVisibilityWarning("admin", { kind: "everyone", name: "開発" })).toContain("（管理者のみ → 全員）");
     expect(widerVisibilityWarning("personal", { kind: "admin", name: "管理" })).toContain("「管理」");
@@ -59,5 +66,19 @@ describe("widerVisibilityWarning", () => {
     expect(widerVisibilityWarning("everyone", { kind: "everyone", name: "別" })).toBeNull();
     expect(widerVisibilityWarning("everyone", { kind: "admin", name: "管理" })).toBeNull();
     expect(widerVisibilityWarning("admin", { kind: "personal", name: null })).toBeNull();
+  });
+});
+
+describe("formatFileSize", () => {
+  it.each([
+    [0, "0 B"],
+    [1023, "1023 B"],
+    [1024, "1.0 KB"],
+    [1536, "1.5 KB"],
+    [1024 * 1024 - 1, "1024.0 KB"],
+    [1024 * 1024, "1.0 MB"],
+    [10 * 1024 * 1024, "10.0 MB"],
+  ])("formats %i bytes as %s", (bytes, expected) => {
+    expect(formatFileSize(bytes)).toBe(expected);
   });
 });

@@ -14,8 +14,8 @@
   // Preview URLs would serve unmigrated code against the production D1 database.
   "preview_urls": false,
   "observability": { "enabled": true },
-  // Daily at 18:00 UTC (03:00 JST): deletes the pages that have been in the trash for 30 days
-  // (the scheduled handler in src/index.ts).
+  // Daily at 18:00 UTC (03:00 JST): deletes the pages that have been in the trash for 30 days, then the
+  // attachment objects in R2 that no longer have a row (the scheduled handler in src/index.ts).
   "triggers": { "crons": ["0 18 * * *"] },
   // Builds the React client into dist/client before `wrangler deploy` and `wrangler dev`, so that
   // the Workers Builds build command can stay empty. `wrangler dev` rebuilds when client/ changes.
@@ -53,6 +53,14 @@
       // OAuth clients, grants and tokens for MCP. No id: like the D1 database, `wrangler deploy`
       // provisions the namespace automatically.
       "binding": "OAUTH_KV"
+    }
+  ],
+  "r2_buckets": [
+    {
+      // The contents of the files attached to pages (src/attachments). No bucket_name: like the D1
+      // database and the KV namespace, `wrangler deploy` provisions the bucket automatically.
+      // R2 must be enabled in the Cloudflare dashboard first (see README).
+      "binding": "ATTACHMENTS"
     }
   ]
 }

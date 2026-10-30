@@ -55,7 +55,8 @@ function isPagePath(path: string): boolean {
 export const securityHeaders: MiddlewareHandler<AppEnv> = async (c, next) => {
   await next();
   const path = c.req.path;
-  if (isPagePath(path) || path === "/api/v1" || path.startsWith("/api/v1/")) {
+  // A route that sets its own Cache-Control keeps it (the contents of attachments).
+  if ((isPagePath(path) || path === "/api/v1" || path.startsWith("/api/v1/")) && !c.res.headers.has("Cache-Control")) {
     c.header("Cache-Control", "no-store");
   }
   if (isPagePath(path)) {

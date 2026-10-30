@@ -151,9 +151,35 @@ export const pageRevisions = sqliteTable(
   (t) => [uniqueIndex("page_revisions_page_id_version_unique").on(t.pageId, t.version)],
 );
 
+// Files attached to pages. The contents are in R2 (the ATTACHMENTS binding) under attachments/{id}; this
+// table holds the metadata only. Objects left without a row are deleted by the scheduled job
+// (attachments/sweep.ts).
+export const attachments = sqliteTable(
+  "attachments",
+  {
+    id: text("id").primaryKey(),
+    // Deleted with the page when it is deleted from the trash.
+    pageId: text("page_id")
+      .notNull()
+      .references(() => pages.id, { onDelete: "cascade" }),
+    // Normalized, with the extension of content_type (see attachments/validation.ts).
+    filename: text("filename").notNull(),
+    // Decided by the server from the first bytes of the file.
+    contentType: text("content_type", {
+      enum: ["image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"],
+    }).notNull(),
+    // Bytes.
+    size: integer("size").notNull(),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("attachments_page_id_idx").on(t.pageId)],
+);
+
 export type UserRow = typeof users.$inferSelect;
 export type SessionRow = typeof sessions.$inferSelect;
 export type SpaceRow = typeof spaces.$inferSelect;
 export type FolderRow = typeof folders.$inferSelect;
 export type PageRow = typeof pages.$inferSelect;
 export type PageRevisionRow = typeof pageRevisions.$inferSelect;
+export type AttachmentRow = typeof attachments.$inferSelect;

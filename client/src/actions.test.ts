@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import type { Page, Space } from "../../src/api/types";
+import type { Attachment, Page, Space } from "../../src/api/types";
 import {
   createFolder,
   createPage,
   createSpace,
+  deleteAttachment,
   deleteFolder,
   deleteSpace,
   moveFolder,
@@ -15,6 +16,7 @@ import {
   trashPage,
   updateFolder,
   updatePage,
+  uploadAttachment,
 } from "./actions";
 import { createApiClient, createApiFetch } from "./api";
 
@@ -618,5 +620,111 @@ describe("deleteSpace", () => {
   it("is redirecting when login is required", async () => {
     const { client } = setup(apiError(401, "ログインしてください"), 401, url);
     expect(await deleteSpace(client, "s1")).toEqual({ kind: "redirecting" });
+  });
+});
+
+describe("uploadAttachment", () => {
+  const url = "/api/v1/pages/p1/attachments?filename=%E5%86%99%E7%9C%9F+1.png";
+  const ATTACHMENT: Attachment = {
+    id: "a1",
+    page_id: "p1",
+    filename: "写真 1.png",
+    content_type: "image/png",
+    size: 3,
+    created_by: "u1",
+    created_at: 1,
+    url: "/api/v1/attachments/a1",
+    markdown: "![写真 1.png](/api/v1/attachments/a1)",
+  };
+
+  function file(size = 3): File {
+    return new File([new Uint8Array(size)], "写真 1.png", { type: "image/png" });
+  }
+
+  it("sends the file itself with its name and returns the attachment on 201", async () => {
+    const { client, fetch } = setup(() => Response.json(ATTACHMENT, { status: 201 }), 401, url);
+    const sent = file();
+    expect(await uploadAttachment(client, "p1", sent)).toEqual({ kind: "ok", attachment: ATTACHMENT });
+    const init = fetch.mock.calls[0]?.[1];
+    expect(init?.method).toBe("POST");
+    expect(init?.body).toBe(sent);
+  });
+
+  it("sends the same file again after refreshing the login", async () => {
+    let calls = 0;
+    const { client, fetch } = setup(
+      () => (++calls === 1 ? apiError(401, "ログインが必要です")() : Response.json(ATTACHMENT, { status: 201 })),
+      204,
+      url,
+    );
+    const sent = file();
+    expect(await uploadAttachment(client, "p1", sent)).toEqual({ kind: "ok", attachment: ATTACHMENT });
+    const uploads = fetch.mock.calls.filter(([input]) => String(input) === url);
+    expect(uploads.map(([, init]) => init?.body)).toEqual([sent, sent]);
+  });
+
+  it.each([
+    ["an empty file", 0, "空のファイルは添付できません"],
+    ["a file over 10MB", 10 * 1024 * 1024 + 1, "添付できるファイルは 10MB までです"],
+  ])("rejects %s without sending", async (_, size, message) => {
+    const { client, fetch } = setup(() => Response.json(ATTACHMENT, { status: 201 }), 401, url);
+    expect(await uploadAttachment(client, "p1", file(size))).toEqual({ kind: "error", message });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("is not found on 404", async () => {
+    const { client } = setup(apiError(404, "ページが見つかりません"), 401, url);
+    expect(await uploadAttachment(client, "p1", file())).toEqual({ kind: "notFound" });
+  });
+
+  it.each([
+    [400, "添付できるのは PNG・JPEG・GIF・WebP の画像と PDF です"],
+    [413, "添付できるファイルは 10MB までです"],
+    [500, "サーバーでエラーが発生しました"],
+  ])("is an error with the API message on %i", async (code, message) => {
+    const { client } = setup(apiError(code, message), 401, url);
+    expect(await uploadAttachment(client, "p1", file())).toEqual({ kind: "error", message });
+  });
+
+  it("is unknown when fetch rejects", async () => {
+    const { client } = setup(() => Promise.reject(new TypeError("Failed to fetch")), 401, url);
+    expect(await uploadAttachment(client, "p1", file())).toEqual({ kind: "unknown" });
+  });
+
+  it("is redirecting when login is required", async () => {
+    const { client, redirectToLogin } = setup(apiError(401, "ログインが必要です"), 401, url);
+    expect(await uploadAttachment(client, "p1", file())).toEqual({ kind: "redirecting" });
+    expect(redirectToLogin).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("deleteAttachment", () => {
+  const url = "/api/v1/attachments/a1";
+
+  it("sends DELETE and is ok on 204", async () => {
+    const { client, fetch } = setup(() => new Response(null, { status: 204 }), 401, url);
+    expect(await deleteAttachment(client, "a1")).toEqual({ kind: "ok" });
+    expect(fetch.mock.calls[0]?.[1]?.method).toBe("DELETE");
+  });
+
+  it("is not found on 404", async () => {
+    const { client } = setup(apiError(404, "添付ファイルが見つかりません"), 401, url);
+    expect(await deleteAttachment(client, "a1")).toEqual({ kind: "notFound" });
+  });
+
+  it("is an error with the API message on 500", async () => {
+    const { client } = setup(apiError(500, "サーバーでエラーが発生しました"), 401, url);
+    expect(await deleteAttachment(client, "a1")).toEqual({ kind: "error", message: "サーバーでエラーが発生しました" });
+  });
+
+  it("is unknown when fetch rejects", async () => {
+    const { client } = setup(() => Promise.reject(new TypeError("Failed to fetch")), 401, url);
+    expect(await deleteAttachment(client, "a1")).toEqual({ kind: "unknown" });
+  });
+
+  it("is redirecting when login is required", async () => {
+    const { client, redirectToLogin } = setup(apiError(401, "ログインが必要です"), 401, url);
+    expect(await deleteAttachment(client, "a1")).toEqual({ kind: "redirecting" });
+    expect(redirectToLogin).toHaveBeenCalledTimes(1);
   });
 });

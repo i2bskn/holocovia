@@ -1,12 +1,20 @@
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useRef, useState } from "react";
 import { updatePage } from "../actions";
 import { type PageDraft, pageDraftKey } from "../drafts";
-import { type PageFields, folderOptions, hasPageChanges, pageChanges } from "../edit";
+import {
+  type PageFields,
+  type TextSelection,
+  folderOptions,
+  hasPageChanges,
+  insertMarkdown,
+  pageChanges,
+} from "../edit";
 import { spaceDisplayName } from "../format";
 import { folderPath } from "../folders";
 import { Link } from "../Link";
 import { type ApiClient, type PageData, loadPageEditView, useView } from "../load";
 import { isValidId, navigate } from "../router";
+import { AttachmentsPanel } from "./Attachments";
 import { ViewStatus, useDocumentTitle, viewTitle } from "./common";
 import {
   DraftNotice,
@@ -92,8 +100,24 @@ function PageEditForm({
   const [send, setSend] = useState<SendState>({ kind: "idle" });
   // The draft in use was written on an older version of the page.
   const [draftOutdated, setDraftOutdated] = useState(false);
+  // The last selection of the body, where attachments are inserted; null until the body is touched, which
+  // inserts at the end. Kept while the preview is shown.
+  const bodySelection = useRef<TextSelection | null>(null);
+  // Read when an upload ends, which may be after more input.
+  const latestFields = useRef(form.fields);
+  latestFields.current = form.fields;
 
   const pagePath = `/pages/${id}`;
+
+  // Inserts like typing: the draft is written and leaving asks first.
+  function onInsertAttachment(markdown: string) {
+    const fields = latestFields.current;
+    const inserted = insertMarkdown(fields.body, bodySelection.current, markdown);
+    bodySelection.current = { start: inserted.cursor, end: inserted.cursor };
+    const next = { ...fields, body: inserted.body };
+    latestFields.current = next;
+    form.setFields(next);
+  }
 
   function onApplyDraft() {
     if (form.prompt && form.prompt.draft.baseVersion !== page.version) setDraftOutdated(true);
@@ -224,6 +248,17 @@ function PageEditForm({
         alert={alert}
         draftFailed={form.draftFailed}
         origin={origin}
+        attachments={
+          <AttachmentsPanel
+            client={client}
+            pageId={page.id}
+            disabled={send.kind === "sending" || send.kind === "redirecting" || form.prompt !== null}
+            onInsert={onInsertAttachment}
+          />
+        }
+        onBodySelect={(selection) => {
+          bodySelection.current = selection;
+        }}
         onSubmit={() => void onSubmit()}
         onCancel={() => navigate(pagePath)}
       />

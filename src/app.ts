@@ -9,6 +9,7 @@ import {
   securityHeaders,
   unifyHost,
 } from "./auth/middleware";
+import attachmentsApi from "./routes/attachments";
 import auth from "./routes/auth";
 import authorize from "./routes/authorize";
 import foldersApi from "./routes/folders";
@@ -40,6 +41,7 @@ const apiRoutes = app
   .route("/api/v1/spaces", spacesApi)
   .route("/api/v1/pages", pagesApi)
   .route("/api/v1/folders", foldersApi)
+  .route("/api/v1/attachments", attachmentsApi)
   .route("/api/v1/search", searchApi);
 
 // Types for hc<AppType>(). Only /api/v1/* is included.

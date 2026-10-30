@@ -4,6 +4,8 @@ import { env } from "cloudflare:workers";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
+  Attachment,
+  AttachmentList,
   Folder,
   FolderList,
   Page,
@@ -45,6 +47,7 @@ import {
   oidcEnv,
   ORIGIN,
   PASSWORD,
+  resetAttachments,
   resetDb,
   send,
   setCookies,
@@ -370,7 +373,7 @@ describe("POST /authorize", () => {
 });
 
 describe("MCP", () => {
-  it("initializes and lists the eighteen tools with their annotations", async () => {
+  it("initializes and lists the twenty tools with their annotations", async () => {
     const { access_token } = await authorizeClient(memberCookies);
     const init = await mcpRequest(access_token, "initialize", {
       protocolVersion: "2025-06-18",
@@ -393,6 +396,7 @@ describe("MCP", () => {
       "delete_page",
       "get_page",
       "get_page_revision",
+      "list_attachments",
       "list_folders",
       "list_page_revisions",
       "list_pages",
@@ -405,6 +409,7 @@ describe("MCP", () => {
       "search_pages",
       "update_folder",
       "update_page",
+      "upload_attachment",
     ]);
     expect(listBody.result.tools.every((t) => t.outputSchema === undefined)).toBe(true);
     const annotations = Object.fromEntries(listBody.result.tools.map((t) => [t.name, t.annotations]));
@@ -428,6 +433,8 @@ describe("MCP", () => {
       restore_page: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       move_page: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
       move_folder: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      upload_attachment: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+      list_attachments: readOnly,
     });
   });
 
@@ -1300,6 +1307,136 @@ describe("MCP trash tools", () => {
   });
 });
 
+describe("MCP attachment tools", () => {
+  const pageNotFound = "ページが見つかりません";
+  const tooLarge = "MCP から添付できるファイルは 2MB までです。大きなファイルは Web の編集画面から添付してください";
+  const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d]);
+  const MAX = 2 * 1024 * 1024;
+
+  let token: string;
+  let everyone: SpaceRow;
+
+  beforeEach(async () => {
+    await resetAttachments();
+    token = (await authorizeClient(memberCookies)).access_token;
+    everyone = await insertSpace("everyone", "Everyone");
+  });
+
+  function toBase64(bytes: Uint8Array): string {
+    let binary = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    }
+    return btoa(binary);
+  }
+
+  function pngOfSize(size: number): Uint8Array {
+    const bytes = new Uint8Array(size);
+    bytes.set(PNG);
+    return bytes;
+  }
+
+  describe("upload_attachment", () => {
+    it("attaches a file and returns it with the Markdown to put in the body", async () => {
+      const page = await insertPage({ spaceId: everyone.id });
+      const base64 = toBase64(PNG).replace(/(.{4})/g, "$1\n");
+      const result = toolJson<Attachment>(
+        await callTool(token, "upload_attachment", { page_id: page.id, filename: "diagram", content_base64: base64 }),
+      );
+      expect(result).toMatchObject({
+        page_id: page.id,
+        filename: "diagram.png",
+        content_type: "image/png",
+        size: PNG.byteLength,
+        created_by: member.id,
+        url: `/api/v1/attachments/${result.id}`,
+        markdown: `![diagram.png](/api/v1/attachments/${result.id})`,
+      });
+      const object = await env.ATTACHMENTS.get(`attachments/${result.id}`);
+      expect(new Uint8Array((await object?.arrayBuffer()) ?? new ArrayBuffer(0))).toEqual(PNG);
+    });
+
+    it("accepts exactly 2MB and rejects one byte more", async () => {
+      const page = await insertPage({ spaceId: everyone.id });
+      const exact = await callTool(token, "upload_attachment", {
+        page_id: page.id,
+        filename: "big.png",
+        content_base64: toBase64(pngOfSize(MAX)),
+      });
+      expect(toolJson<Attachment>(exact).size).toBe(MAX);
+      expectToolError(
+        await callTool(token, "upload_attachment", {
+          page_id: page.id,
+          filename: "big.png",
+          content_base64: toBase64(pngOfSize(MAX + 1)),
+        }),
+        tooLarge,
+      );
+    });
+
+    it("rejects base64 longer than 2MB allows before decoding it", async () => {
+      const page = await insertPage({ spaceId: everyone.id });
+      const length = 4 * Math.ceil(MAX / 3) + 65536 + 1;
+      expectToolError(
+        await callTool(token, "upload_attachment", {
+          page_id: page.id,
+          filename: "big.png",
+          content_base64: "!".repeat(length),
+        }),
+        tooLarge,
+      );
+    });
+
+    it.each([
+      ["base64 that cannot be read", { filename: "a.png", content_base64: "not base64!" }, "content_base64 が base64 として読めません"],
+      ["an empty file", { filename: "a.png", content_base64: "" }, "空のファイルは添付できません"],
+      [
+        "SVG",
+        { filename: "a.svg", content_base64: btoa("<svg xmlns='http://www.w3.org/2000/svg'/>") },
+        "添付できるのは PNG・JPEG・GIF・WebP の画像と PDF です",
+      ],
+      ["an empty filename", { filename: " ", content_base64: "" }, "ファイル名は 1 文字以上 250 文字以下にしてください"],
+    ])("rejects %s", async (_, args, message) => {
+      const page = await insertPage({ spaceId: everyone.id });
+      expectToolError(await callTool(token, "upload_attachment", { page_id: page.id, ...args }), message);
+    });
+
+    it("reports the pages it cannot access as missing", async () => {
+      const adminSpace = await insertSpace("admin", "Admins");
+      const adminPage = await insertPage({ spaceId: adminSpace.id });
+      const trashed = await insertPage({ spaceId: everyone.id, deletedAt: Date.now() });
+      for (const pageId of [adminPage.id, trashed.id, "missing"]) {
+        expectToolError(
+          await callTool(token, "upload_attachment", { page_id: pageId, filename: "a.png", content_base64: toBase64(PNG) }),
+          pageNotFound,
+        );
+      }
+      const listed = await env.ATTACHMENTS.list();
+      expect(listed.objects).toEqual([]);
+    });
+  });
+
+  describe("list_attachments", () => {
+    it("lists the attachments of the page, oldest first", async () => {
+      const page = await insertPage({ spaceId: everyone.id });
+      const first = toolJson<Attachment>(
+        await callTool(token, "upload_attachment", { page_id: page.id, filename: "a", content_base64: toBase64(PNG) }),
+      );
+      const result = toolJson<AttachmentList>(await callTool(token, "list_attachments", { page_id: page.id }));
+      expect(result).toEqual({ attachments: [first] });
+    });
+
+    it("reports the pages it cannot access as missing", async () => {
+      const adminSpace = await insertSpace("admin", "Admins");
+      const adminPage = await insertPage({ spaceId: adminSpace.id });
+      const trashed = await insertPage({ spaceId: everyone.id, deletedAt: Date.now() });
+      for (const pageId of [adminPage.id, trashed.id, "missing"]) {
+        expectToolError(await callTool(token, "list_attachments", { page_id: pageId }), pageNotFound);
+      }
+    });
+  });
+});
+
 describe("MCP move tools", () => {
   const spaceNotFound = "移動先のスペースが見つかりません";
 
@@ -1328,7 +1465,7 @@ describe("MCP move tools", () => {
   function widerMessage(destName: string, to: string, from: string): string {
     return (
       `移動先のスペース「${destName}」（${to}）は、移動元（${from}）より多くの人が見られます。` +
-      "ページの過去の版（履歴）も見られるようになります。" +
+      "ページの過去の版（履歴）と添付ファイルも見られるようになります。" +
       "利用者に確認してから acknowledge_wider_visibility: true を付けて呼んでください"
     );
   }

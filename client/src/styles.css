@@ -573,7 +573,73 @@ a {
   color: #a00;
 }
 
+.attachments {
+  margin: 1rem 0;
+}
+
+.attachments h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.125rem;
+}
+
+.attachments p {
+  margin: 0.5rem 0;
+}
+
+.attachments-note {
+  font-size: 0.875rem;
+  color: #555;
+}
+
+.attachments-upload {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0.5rem 0;
+}
+
+.attachments-upload input {
+  max-width: 100%;
+  font: inherit;
+}
+
+.attachments-list {
+  margin: 0.5rem 0;
+  padding: 0;
+  list-style: none;
+}
+
+.attachments-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.75rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #eee;
+}
+
+.attachments-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.attachments-size {
+  font-size: 0.875rem;
+  color: #555;
+}
+
+.attachments-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
 @media (max-width: 480px) {
+  .attachments-buttons {
+    margin-left: 0;
+  }
+
   .editor-fields {
     flex-direction: column;
   }

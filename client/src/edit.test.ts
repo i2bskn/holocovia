@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { Folder } from "../../src/api/types";
-import { type PageFields, folderOptions, hasNewPageInput, hasPageChanges, pageChanges } from "./edit";
+import {
+  type PageFields,
+  folderOptions,
+  hasNewPageInput,
+  hasPageChanges,
+  insertMarkdown,
+  pageChanges,
+} from "./edit";
 import { descendantIds } from "./folders";
 
 const ORIGINAL: PageFields = { title: "手順", body: "# 手順", folderId: "f1" };
@@ -106,5 +113,31 @@ describe("folderOptions", () => {
 
   it("returns nothing without folders", () => {
     expect(folderOptions([])).toEqual([]);
+  });
+});
+
+describe("insertMarkdown", () => {
+  const md = "![a.png](/api/v1/attachments/a1)";
+
+  it.each([
+    ["at the end of an empty body", "", null, `${md}`],
+    ["at the end without a selection", "text", null, `text\n${md}`],
+    ["at the end after a line break", "text\n", null, `text\n${md}`],
+    ["at the start of a line", "one\ntwo", { start: 4, end: 4 }, `one\n${md}\ntwo`],
+    ["in the middle of a line", "onetwo", { start: 3, end: 3 }, `one\n${md}\ntwo`],
+    ["at the end of a line", "one\ntwo", { start: 3, end: 3 }, `one\n${md}\ntwo`],
+    ["at the start of the body", "one", { start: 0, end: 0 }, `${md}\none`],
+    ["in place of the selection", "one TWO three", { start: 4, end: 7 }, `one \n${md}\n three`],
+    ["in place of whole lines", "one\ntwo\nthree", { start: 4, end: 7 }, `one\n${md}\nthree`],
+    ["at the end for a selection past it", "one", { start: 10, end: 12 }, `one\n${md}`],
+  ])("inserts %s", (_, body, selection, expected) => {
+    expect(insertMarkdown(body, selection, md).body).toBe(expected);
+  });
+
+  it("returns the position right after the inserted text", () => {
+    const first = insertMarkdown("onetwo", { start: 3, end: 3 }, "A");
+    expect(first).toEqual({ body: "one\nA\ntwo", cursor: 5 });
+    const second = insertMarkdown(first.body, { start: first.cursor, end: first.cursor }, "B");
+    expect(second.body).toBe("one\nA\nB\ntwo");
   });
 });
