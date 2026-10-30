@@ -19,6 +19,20 @@ describe("matchRoute", () => {
     },
   );
 
+  it("matches the search screen with its query", () => {
+    expect(matchRoute("/search?q=abc")).toEqual({ name: "search", query: "abc" });
+    expect(matchRoute("/search")).toEqual({ name: "search", query: "" });
+    expect(matchRoute("/search?q=")).toEqual({ name: "search", query: "" });
+    expect(matchRoute("/search?q=%E6%A4%9C")).toEqual({ name: "search", query: "検" });
+    expect(matchRoute("/search?q=a+b")).toEqual({ name: "search", query: "a b" });
+    expect(matchRoute("/search?q=a&q=b")).toEqual({ name: "search", query: "a" });
+  });
+
+  it("ignores the search part on other screens", () => {
+    expect(matchRoute("/spaces/x?a=1")).toEqual({ name: "space", id: "x" });
+    expect(matchRoute("/?q=a")).toEqual({ name: "home" });
+  });
+
   it("accepts IDs of up to 64 characters", () => {
     const id64 = "a".repeat(64);
     expect(matchRoute(`/pages/${id64}`)).toEqual({ name: "page", id: id64 });

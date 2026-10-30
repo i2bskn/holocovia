@@ -4,6 +4,7 @@ export type Route =
   | { name: "home" }
   | { name: "space"; id: string }
   | { name: "page"; id: string }
+  | { name: "search"; query: string }
   | { name: "notFound" };
 
 // hc() puts params into the URL without encoding them, so IDs are limited to characters that cannot
@@ -17,8 +18,14 @@ export function isValidId(id: string): boolean {
 
 const ROUTE_PATTERN = /^\/(spaces|pages)\/([^/]+)$/;
 
-export function matchRoute(pathname: string): Route {
+// path is the pathname followed by the search part, if any. Only /search reads the search part.
+export function matchRoute(path: string): Route {
+  const index = path.indexOf("?");
+  const pathname = index === -1 ? path : path.slice(0, index);
+  const search = index === -1 ? "" : path.slice(index);
   if (pathname === "/") return { name: "home" };
+  // URLSearchParams decodes the value and reads "+" as a space.
+  if (pathname === "/search") return { name: "search", query: new URLSearchParams(search).get("q") ?? "" };
   const match = ROUTE_PATTERN.exec(pathname);
   if (!match) return { name: "notFound" };
   const [, kind, id] = match;
@@ -38,12 +45,13 @@ function subscribe(listener: () => void): () => void {
   };
 }
 
-function getPathname(): string {
-  return location.pathname;
+// Includes the search part, so that moving from /search?q=a to /search?q=b renders again.
+function getPath(): string {
+  return location.pathname + location.search;
 }
 
-export function usePathname(): string {
-  return useSyncExternalStore(subscribe, getPathname);
+export function usePath(): string {
+  return useSyncExternalStore(subscribe, getPath);
 }
 
 // Moves to a path inside the SPA. The scroll position is not restored on back; that is left to the browser.

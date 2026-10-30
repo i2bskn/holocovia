@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import type { Page, PageSummary, Space, User } from "../../src/api/types";
+import type { Page, PageSummary, SearchHit, Space, User } from "../../src/api/types";
 import {
   LoginRequiredError,
   type createApiClient,
   responseErrorMessage,
   unexpectedResponseMessage,
 } from "./api";
+import { spaceDisplayName } from "./format";
 import { isValidId } from "./router";
 
 export type ApiClient = ReturnType<typeof createApiClient>;
@@ -117,6 +118,28 @@ export async function loadPageView(client: ApiClient, id: string): Promise<Loade
   const space = await request(() => client.api.v1.spaces[":id"].$get({ param: { id: spaceId } }));
   if (space.kind === "redirecting") return space;
   return { kind: "ready", data: { page: page.value, space: space.kind === "ok" ? space.value : null } };
+}
+
+// query is trimmed. spaceNames maps space_id to the display name; it is empty when the spaces
+// could not be loaded, and the results are shown anyway.
+export type SearchData = { query: string; hits: SearchHit[]; hasMore: boolean; spaceNames: Map<string, string> };
+
+export async function loadSearchView(client: ApiClient, query: string): Promise<Loaded<SearchData>> {
+  const q = query.trim();
+  // Only an empty query is checked here; the server checks the rest and its message is shown.
+  if (q === "") return { kind: "ready", data: { query: "", hits: [], hasMore: false, spaceNames: new Map() } };
+  const [result, list] = await Promise.all([
+    request(() => client.api.v1.search.$get({ query: { q } })),
+    request(() => client.api.v1.spaces.$get()),
+  ]);
+  if (result.kind === "redirecting") return result;
+  // The search itself is never missing; a 404 here is an unexpected response.
+  if (result.kind === "notFound" || result.kind === "error") return { kind: "error", message: result.message };
+  if (list.kind === "redirecting") return list;
+  const spaceNames = new Map(
+    list.kind === "ok" ? list.value.spaces.map((space) => [space.id, spaceDisplayName(space)] as const) : [],
+  );
+  return { kind: "ready", data: { query: q, hits: result.value.hits, hasMore: result.value.has_more, spaceNames } };
 }
 
 // Loads a screen's data while the component is mounted, and again when key changes or reload is called.

@@ -1,6 +1,7 @@
 import type { Context, MiddlewareHandler } from "hono";
-import type { Page, PageSummary, Space, User } from "../api/types";
+import type { Page, PageSummary, SearchHit, Space, User } from "../api/types";
 import type { PageRow, SpaceRow, UserRow } from "../db/schema";
+import type { SearchHitRow } from "../pages/search";
 import type { AppEnv } from "../env";
 import { apiError } from "../auth/middleware";
 import { isJsonObject } from "../auth/validate";
@@ -42,6 +43,10 @@ export function toApiPageSummary(page: Omit<PageRow, "body">): PageSummary {
 
 export function toApiPage(page: PageRow): Page {
   return { ...toApiPageSummary(page), body: page.body };
+}
+
+export function toApiSearchHit(hit: SearchHitRow): SearchHit {
+  return { ...toApiPageSummary(hit), snippet: hit.snippet };
 }
 
 // Returns the JSON body if it is an object, otherwise null.

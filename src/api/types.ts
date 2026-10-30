@@ -138,3 +138,24 @@ export type UpdatePageRequest = {
 
 // UpdatePageRequest after validation. title is trimmed.
 export type UpdatePageInput = UpdatePageRequest;
+
+// A page found by search, without its body. Written out flat like Page.
+export type SearchHit = {
+  id: string;
+  space_id: string;
+  title: string;
+  version: number;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: number;
+  updated_at: number;
+  // The body around the first match: 40 characters before, the match, and 40 after.
+  // null when only the title matches.
+  snippet: string | null;
+};
+
+export type SearchResult = {
+  hits: SearchHit[];
+  // true when more than 50 pages matched; only the first 50 are returned.
+  has_more: boolean;
+};

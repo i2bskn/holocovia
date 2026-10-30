@@ -2,24 +2,27 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { asc } from "drizzle-orm";
 import { z } from "zod";
-import type { PageList, SpaceList, UpdatePageInput } from "../api/types";
+import type { PageList, SearchResult, SpaceList, UpdatePageInput } from "../api/types";
 import { describeError } from "../auth/middleware";
 import type { Db } from "../db/client";
 import { spaces, type UserRow } from "../db/schema";
 import { findAccessiblePage, listPageSummaries } from "../pages/queries";
+import { searchAccessiblePages } from "../pages/search";
 import { createPage, updatePage } from "../pages/service";
 import {
   emptyUpdateMessage,
   invalidPageBodyMessage,
+  invalidSearchQueryMessage,
   invalidTitleMessage,
   invalidVersionMessage,
   isValidPageBody,
   normalizePageTitle,
+  normalizeSearchQuery,
   normalizeVersion,
   pageNotFoundMessage,
   versionConflictMessage,
 } from "../pages/validation";
-import { toApiPage, toApiPageSummary, toApiSpace } from "../routes/api";
+import { toApiPage, toApiPageSummary, toApiSearchHit, toApiSpace } from "../routes/api";
 import { accessibleSpacesWhere, canAccessSpace } from "../spaces/access";
 import { findSpaceById } from "../spaces/queries";
 
@@ -107,6 +110,37 @@ export function registerTools(server: McpServer, { db, user }: ToolDeps): void {
         const page = await findAccessiblePage(db, user, page_id);
         if (!page) return errorResult(pageNotFoundMessage);
         return jsonResult(toApiPage(page));
+      }),
+  );
+
+  server.registerTool(
+    "search_pages",
+    {
+      description:
+        "Search pages by a substring of the title or the body, in the spaces the signed-in user can access. " +
+        "Matching is case-insensitive for ASCII letters only; there is no word splitting, so the whole query is matched as one string. " +
+        "Pages whose title matches come first, then the most recently updated. Returns up to 50 pages without bodies, " +
+        "each with a snippet of the body around the first match (null when only the title matches). " +
+        "has_more is true when more pages matched; narrow the query or pass space_id. Use get_page to read a body.",
+      inputSchema: {
+        // Not .min()/.max(): normalizeSearchQuery checks it, so that the message is the same as in the REST API.
+        query: z.string().describe("The text to search for, 1 to 100 characters"),
+        space_id: z
+          .string()
+          .optional()
+          .describe("Limit the search to this space, an id returned by list_spaces"),
+      },
+      annotations: readOnlyAnnotations,
+    },
+    ({ query, space_id }) =>
+      guard("search_pages", async () => {
+        // Validated in the same order as GET /api/v1/search.
+        const normalizedQuery = normalizeSearchQuery(query);
+        if (normalizedQuery === null) return errorResult(invalidSearchQueryMessage);
+        const result = await searchAccessiblePages(db, user, normalizedQuery, space_id);
+        if (!result.ok) return errorResult("スペースが見つかりません");
+        const body: SearchResult = { hits: result.result.hits.map(toApiSearchHit), has_more: result.result.hasMore };
+        return jsonResult(body);
       }),
   );
 

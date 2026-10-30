@@ -2,6 +2,7 @@
 
 const PAGE_TITLE_MAX_LENGTH = 200;
 const PAGE_BODY_MAX_BYTES = 512 * 1024;
+const SEARCH_QUERY_MAX_LENGTH = 100;
 const CONTROL_CHARACTER = /\p{Cc}/u;
 // With the u flag, \p{Cs} matches only unpaired surrogates, so this is the same as !isWellFormed()
 // (not in the ES2022 lib). D1 would store them as U+FFFD, so the saved value would differ.
@@ -14,6 +15,8 @@ export const invalidPageBodyMessage = "本文は 512KB 以下で、NUL 文字を
 export const invalidVersionMessage = "version は 1 以上の整数で指定してください";
 export const emptyUpdateMessage = "title か body のどちらかを指定してください";
 export const versionConflictMessage = "ページが他の人に更新されています。最新の内容を取得してからやり直してください";
+export const invalidSearchQueryMessage =
+  "検索語は 1 文字以上 100 文字以下で、改行などの制御文字を含まない文字列にしてください";
 
 // Returns the trimmed title, or null if invalid. Length is counted in code points; no Unicode normalization.
 export function normalizePageTitle(value: unknown): string | null {
@@ -35,4 +38,14 @@ export function isValidPageBody(value: unknown): value is string {
 // Returns the version, or null unless it is an integer of 1 or more.
 export function normalizeVersion(value: unknown): number | null {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 1 ? value : null;
+}
+
+// Returns the trimmed search query, or null if invalid. Length is counted in code points; no Unicode normalization.
+export function normalizeSearchQuery(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const query = value.trim();
+  const length = [...query].length;
+  if (length < 1 || length > SEARCH_QUERY_MAX_LENGTH) return null;
+  if (CONTROL_CHARACTER.test(query) || LONE_SURROGATE.test(query)) return null;
+  return query;
 }

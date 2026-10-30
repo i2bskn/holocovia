@@ -6,6 +6,7 @@ import type {
   CreateUserRequest,
   Page,
   PageList,
+  SearchResult,
   Space,
   SpaceList,
   UpdatePageRequest,
@@ -22,6 +23,7 @@ type CreateUserJson = InferRequestType<typeof client.api.v1.users.$post>["json"]
 type CreateSpaceJson = InferRequestType<typeof client.api.v1.spaces.$post>["json"];
 type CreatePageJson = InferRequestType<(typeof client.api.v1.spaces)[":id"]["pages"]["$post"]>["json"];
 type UpdatePageJson = InferRequestType<(typeof client.api.v1.pages)[":id"]["$patch"]>["json"];
+type SearchQuery = InferRequestType<typeof client.api.v1.search.$get>["query"];
 
 describe("AppType", () => {
   it("types the request body of POST /api/v1/users", () => {
@@ -52,6 +54,15 @@ describe("AppType", () => {
     void withoutVersion;
   });
 
+  it("types the query of GET /api/v1/search", () => {
+    expectTypeOf<SearchQuery["q"]>().toEqualTypeOf<string>();
+    const withSpace: SearchQuery = { q: "plan", space_id: "s1" };
+    // @ts-expect-error q is required
+    const withoutQ: SearchQuery = { space_id: "s1" };
+    void withSpace;
+    void withoutQ;
+  });
+
   it("types successful response bodies", () => {
     expectTypeOf<InferResponseType<typeof client.api.v1.me.$get, 200>>().toEqualTypeOf<User>();
     expectTypeOf<InferResponseType<typeof client.api.v1.users.$get, 200>>().toEqualTypeOf<UserList>();
@@ -62,5 +73,6 @@ describe("AppType", () => {
     expectTypeOf<InferResponseType<(typeof client.api.v1.spaces)[":id"]["pages"]["$post"], 201>>().toEqualTypeOf<Page>();
     expectTypeOf<InferResponseType<(typeof client.api.v1.pages)[":id"]["$get"], 200>>().toEqualTypeOf<Page>();
     expectTypeOf<InferResponseType<(typeof client.api.v1.pages)[":id"]["$patch"], 200>>().toEqualTypeOf<Page>();
+    expectTypeOf<InferResponseType<typeof client.api.v1.search.$get, 200>>().toEqualTypeOf<SearchResult>();
   });
 });

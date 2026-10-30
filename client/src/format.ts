@@ -15,3 +15,8 @@ export function spaceDisplayName(space: Pick<Space, "kind" | "name">): string {
 export function formatDateTime(ms: number, timeZone?: string): string {
   return new Intl.DateTimeFormat("ja-JP", { dateStyle: "medium", timeStyle: "short", timeZone }).format(ms);
 }
+
+// Shows a body snippet as one line of plain text. It is cut from the body, so "…" is added on both sides.
+export function formatSnippet(snippet: string): string {
+  return `…${snippet.replace(/\s+/g, " ").trim()}…`;
+}

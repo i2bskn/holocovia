@@ -3,7 +3,7 @@ import { createExecutionContext } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Page, PageList, PageSummary, Space, SpaceList } from "../src/api/types";
+import type { Page, PageList, PageSummary, SearchResult, Space, SpaceList } from "../src/api/types";
 import { safeNext } from "../src/auth/redirect";
 import { issueSession } from "../src/auth/sessions";
 import { base64UrlEncode, signAccessToken } from "../src/auth/tokens";
@@ -346,7 +346,7 @@ describe("POST /authorize", () => {
 });
 
 describe("MCP", () => {
-  it("initializes and lists the five tools with their annotations", async () => {
+  it("initializes and lists the six tools with their annotations", async () => {
     const { access_token } = await authorizeClient(memberCookies);
     const init = await mcpRequest(access_token, "initialize", {
       protocolVersion: "2025-06-18",
@@ -367,6 +367,7 @@ describe("MCP", () => {
       "get_page",
       "list_pages",
       "list_spaces",
+      "search_pages",
       "update_page",
     ]);
     expect(listBody.result.tools.every((t) => t.outputSchema === undefined)).toBe(true);
@@ -376,6 +377,7 @@ describe("MCP", () => {
       list_spaces: readOnly,
       list_pages: readOnly,
       get_page: readOnly,
+      search_pages: readOnly,
       create_page: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
       update_page: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     });
@@ -497,6 +499,64 @@ describe("MCP", () => {
     expectToolError(result, "サーバーでエラーが発生しました");
     expect(JSON.stringify(result)).not.toContain("pages");
     expect(errorLog).toHaveBeenCalledWith("mcp tool failed", expect.objectContaining({ tool: "get_page" }));
+  });
+});
+
+describe("search_pages", () => {
+  const invalidQuery = "検索語は 1 文字以上 100 文字以下で、改行などの制御文字を含まない文字列にしてください";
+
+  let token: string;
+  let everyone: SpaceRow;
+
+  beforeEach(async () => {
+    token = (await authorizeClient(memberCookies)).access_token;
+    everyone = await insertSpace("everyone", "Everyone");
+  });
+
+  it("returns the same result as the REST API", async () => {
+    const page = await insertPage({ spaceId: everyone.id, title: "Notes", body: "how to deploy" });
+    const result = toolJson<SearchResult>(await callTool(token, "search_pages", { query: "deploy" }));
+    expect(result.hits.map((hit) => hit.id)).toEqual([page.id]);
+    expect(result.hits[0]?.snippet).toBe("how to deploy");
+    expect(result.hits[0]).not.toHaveProperty("body");
+    expect(result.has_more).toBe(false);
+    const rest = (await (await send("/api/v1/search?q=deploy", { cookies: memberCookies })).json()) as SearchResult;
+    expect(result).toEqual(rest);
+  });
+
+  it("does not return pages the user cannot access, even when only the body matches", async () => {
+    const adminSpace = await insertSpace("admin", "Admins");
+    await insertPage({ spaceId: adminSpace.id, title: "notes", body: "the secret is here" });
+    await insertPage({ spaceId: (await personalSpaceOf(admin)).id, title: "notes", body: "the secret is here" });
+    const visible = await insertPage({ spaceId: everyone.id, title: "notes", body: "the secret is here" });
+    const result = toolJson<SearchResult>(await callTool(token, "search_pages", { query: "secret" }));
+    expect(result.hits.map((hit) => hit.id)).toEqual([visible.id]);
+  });
+
+  it("searches all spaces when space_id is empty", async () => {
+    const other = await insertSpace("everyone", "Other");
+    const a = await insertPage({ spaceId: everyone.id, title: "key a", body: "", at: 2 });
+    const b = await insertPage({ spaceId: other.id, title: "key b", body: "", at: 1 });
+    const all = toolJson<SearchResult>(await callTool(token, "search_pages", { query: "key", space_id: "" }));
+    expect(all.hits.map((hit) => hit.id)).toEqual([a.id, b.id]);
+    const one = toolJson<SearchResult>(await callTool(token, "search_pages", { query: "key", space_id: other.id }));
+    expect(one.hits.map((hit) => hit.id)).toEqual([b.id]);
+  });
+
+  it("reports an invalid query", async () => {
+    expectToolError(await callTool(token, "search_pages", { query: "  " }), invalidQuery);
+    expectToolError(await callTool(token, "search_pages", { query: "a".repeat(101) }), invalidQuery);
+    expectToolError(await callTool(token, "search_pages", { query: "a\nb", space_id: "missing" }), invalidQuery);
+  });
+
+  it("reports a space the user cannot access as missing", async () => {
+    const adminSpace = await insertSpace("admin", "Admins");
+    for (const spaceId of [adminSpace.id, (await personalSpaceOf(admin)).id, "missing"]) {
+      expectToolError(
+        await callTool(token, "search_pages", { query: "key", space_id: spaceId }),
+        "スペースが見つかりません",
+      );
+    }
   });
 });
 
