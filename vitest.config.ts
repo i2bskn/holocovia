@@ -31,7 +31,7 @@ export default defineConfig(async () => {
         {
           test: {
             name: "client",
-            include: ["client/**/*.test.ts"],
+            include: ["client/**/*.test.{ts,tsx}"],
             environment: "node",
           },
         },

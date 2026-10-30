@@ -1,13 +1,15 @@
-import { useEffect, useState } from "react";
-import type { Space, SpaceKind, User } from "../../src/api/types";
-import {
-  LoginRequiredError,
-  createApiClient,
-  createApiFetch,
-  responseErrorMessage,
-  unexpectedResponseMessage,
-} from "./api";
+import type { User } from "../../src/api/types";
+import { createApiClient, createApiFetch, unexpectedResponseMessage } from "./api";
+import { Link } from "./Link";
+import { loadMe, useView } from "./load";
+import { matchRoute, usePathname } from "./router";
+import { LoadError, NotFound, useDocumentTitle } from "./views/common";
+import { ErrorBoundary } from "./views/ErrorBoundary";
+import { HomeView } from "./views/HomeView";
+import { PageView } from "./views/PageView";
+import { SpaceView } from "./views/SpaceView";
 
+// One client for every screen: the shared refresh and the single move to the login page are per instance.
 const client = createApiClient(
   createApiFetch({
     fetch: globalThis.fetch.bind(globalThis),
@@ -16,112 +18,67 @@ const client = createApiClient(
   }),
 );
 
-type State =
-  | { kind: "loading" }
-  | { kind: "ready"; user: User; spaces: Space[] }
-  | { kind: "error"; message: string }
-  | { kind: "redirecting" };
-
-const CONNECTION_ERROR = "サーバーに接続できませんでした";
-
-const SPACE_KIND_LABELS: Record<SpaceKind, string> = {
-  everyone: "全員",
-  admin: "管理者のみ",
-  personal: "自分だけ",
-};
-
-// Reads the JSON body of an ok response. null if it is not JSON.
-async function readJson<T>(res: { json(): Promise<T> }): Promise<T | null> {
-  try {
-    return await res.json();
-  } catch {
-    return null;
-  }
-}
-
-async function load(): Promise<State> {
-  const [me, spaces] = await Promise.allSettled([client.api.v1.me.$get(), client.api.v1.spaces.$get()]);
-  // Moving to the login page takes precedence over showing an error.
-  for (const result of [me, spaces]) {
-    if (result.status === "rejected" && result.reason instanceof LoginRequiredError) return { kind: "redirecting" };
-  }
-  if (me.status === "rejected" || spaces.status === "rejected") return { kind: "error", message: CONNECTION_ERROR };
-  if (!me.value.ok) return { kind: "error", message: await responseErrorMessage(me.value) };
-  if (!spaces.value.ok) return { kind: "error", message: await responseErrorMessage(spaces.value) };
-
-  const user = await readJson(me.value);
-  if (user === null) return { kind: "error", message: unexpectedResponseMessage(me.value.status) };
-  const list = await readJson(spaces.value);
-  if (list === null) return { kind: "error", message: unexpectedResponseMessage(spaces.value.status) };
-  return { kind: "ready", user, spaces: list.spaces };
-}
-
 export function App() {
-  const [state, setState] = useState<State>({ kind: "loading" });
-  // Incremented by the reload button to load again from the start.
-  const [attempt, setAttempt] = useState(0);
+  // Loaded once; moving between screens does not load it again. Screens load their data after it.
+  const [me, reload] = useView(() => loadMe(client), "me");
+  const pathname = usePathname();
 
-  useEffect(() => {
-    let cancelled = false;
-    setState({ kind: "loading" });
-    void load().then((next) => {
-      if (!cancelled) setState(next);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [attempt]);
-
-  switch (state.kind) {
+  switch (me.kind) {
     case "loading":
       return <p className="status">読み込み中…</p>;
     case "redirecting":
       return <p className="status">ログイン画面へ移動しています…</p>;
     case "error":
-      return (
-        <main className="main">
-          <h1>読み込みに失敗しました</h1>
-          <p>{state.message}</p>
-          <button type="button" onClick={() => setAttempt((n) => n + 1)}>
-            再読み込み
-          </button>
-        </main>
-      );
+      return <LoadError message={me.message} onReload={reload} />;
+    case "notFound":
+      // loadMe reports a 404 as an error; this case only completes the switch.
+      return <LoadError message={unexpectedResponseMessage(404)} onReload={reload} />;
     case "ready":
-      return <Home user={state.user} spaces={state.spaces} />;
+      return (
+        <>
+          <Header user={me.data} />
+          <ErrorBoundary key={pathname}>
+            <Screen pathname={pathname} />
+          </ErrorBoundary>
+        </>
+      );
   }
 }
 
-function Home({ user, spaces }: { user: User; spaces: Space[] }) {
+function Screen({ pathname }: { pathname: string }) {
+  const route = matchRoute(pathname);
+  switch (route.name) {
+    case "home":
+      return <HomeView client={client} />;
+    case "space":
+      return <SpaceView client={client} id={route.id} />;
+    case "page":
+      return <PageView client={client} id={route.id} origin={location.origin} />;
+    case "notFound":
+      return <RouteNotFound />;
+  }
+}
+
+function RouteNotFound() {
+  useDocumentTitle("見つかりません - holocovia");
+  return <NotFound message="ページが見つかりません" />;
+}
+
+function Header({ user }: { user: User }) {
   return (
-    <>
-      <header className="header">
-        <span className="brand">holocovia</span>
-        <div className="account">
-          <span className="user">
-            {user.name ?? user.email}
-            {user.role === "admin" && <span className="role">管理者</span>}
-          </span>
-          <form method="post" action="/auth/logout">
-            <button type="submit">ログアウト</button>
-          </form>
-        </div>
-      </header>
-      <main className="main">
-        <h1>スペース</h1>
-        {spaces.length === 0 ? (
-          <p>スペースがありません</p>
-        ) : (
-          <ul className="spaces">
-            {spaces.map((space) => (
-              <li key={space.id}>
-                <span className="space-name">{space.kind === "personal" ? "個人スペース" : space.name}</span>
-                <span className="space-kind">{SPACE_KIND_LABELS[space.kind]}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </main>
-    </>
+    <header className="header">
+      <Link to="/" className="brand">
+        holocovia
+      </Link>
+      <div className="account">
+        <span className="user">
+          {user.name ?? user.email}
+          {user.role === "admin" && <span className="role">管理者</span>}
+        </span>
+        <form method="post" action="/auth/logout">
+          <button type="submit">ログアウト</button>
+        </form>
+      </div>
+    </header>
   );
 }
