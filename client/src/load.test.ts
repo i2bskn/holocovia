@@ -13,6 +13,7 @@ import type {
 import { createApiClient, createApiFetch } from "./api";
 import {
   loadFolderView,
+  loadHomeView,
   loadPageEditView,
   loadPageHistoryView,
   loadPageNewView,
@@ -20,6 +21,7 @@ import {
   loadPageView,
   loadSearchView,
   loadSpaceView,
+  loadTopPage,
   loadTrashView,
   loadUsersView,
 } from "./load";
@@ -77,6 +79,80 @@ function setup(routes: Record<string, Reply[]>) {
 }
 
 const unauthorized = apiError(401, "ログインしてください");
+
+describe("loadHomeView", () => {
+  it("shows the spaces and the top page", async () => {
+    const { client } = setup({
+      "/api/v1/spaces": [json(200, { spaces: [SPACE] })],
+      "/api/v1/top-page": [json(200, { page: PAGE })],
+    });
+    expect(await loadHomeView(client)).toEqual({
+      kind: "ready",
+      data: { spaces: [SPACE], topPage: PAGE, topPageError: false },
+    });
+  });
+
+  it("shows the spaces without a top page when none is set", async () => {
+    const { client } = setup({
+      "/api/v1/spaces": [json(200, { spaces: [SPACE] })],
+      "/api/v1/top-page": [json(200, { page: null })],
+    });
+    expect(await loadHomeView(client)).toEqual({
+      kind: "ready",
+      data: { spaces: [SPACE], topPage: null, topPageError: false },
+    });
+  });
+
+  it.each([
+    ["500", apiError(500, "サーバーでエラーが発生しました")],
+    ["404", apiError(404, "見つかりません")],
+  ])("shows the spaces when only the top page fails with %s", async (_, reply) => {
+    const { client } = setup({
+      "/api/v1/spaces": [json(200, { spaces: [SPACE] })],
+      "/api/v1/top-page": [reply],
+    });
+    expect(await loadHomeView(client)).toEqual({
+      kind: "ready",
+      data: { spaces: [SPACE], topPage: null, topPageError: true },
+    });
+  });
+
+  it("is an error with the API message when the spaces fail", async () => {
+    const { client } = setup({
+      "/api/v1/spaces": [apiError(500, "サーバーでエラーが発生しました")],
+      "/api/v1/top-page": [json(200, { page: PAGE })],
+    });
+    expect(await loadHomeView(client)).toEqual({ kind: "error", message: "サーバーでエラーが発生しました" });
+  });
+
+  it.each(["/api/v1/spaces", "/api/v1/top-page"])(
+    "moves to the login page when %s stays 401 after the refresh",
+    async (url) => {
+      const routes: Record<string, Reply[]> = {
+        "/api/v1/spaces": [json(200, { spaces: [] })],
+        "/api/v1/top-page": [json(200, { page: null })],
+        "/auth/refresh": [() => new Response(null, { status: 401 })],
+      };
+      routes[url] = [unauthorized, unauthorized];
+      const { client, redirectToLogin } = setup(routes);
+      expect(await loadHomeView(client)).toEqual({ kind: "redirecting" });
+      expect(redirectToLogin).toHaveBeenCalledTimes(1);
+    },
+  );
+});
+
+describe("loadTopPage", () => {
+  it("is ok with the page or null", async () => {
+    const { client } = setup({ "/api/v1/top-page": [json(200, { page: PAGE }), json(200, { page: null })] });
+    expect(await loadTopPage(client)).toEqual({ kind: "ok", value: PAGE });
+    expect(await loadTopPage(client)).toEqual({ kind: "ok", value: null });
+  });
+
+  it("is an error when the request fails", async () => {
+    const { client } = setup({ "/api/v1/top-page": [apiError(500, "サーバーでエラーが発生しました")] });
+    expect(await loadTopPage(client)).toEqual({ kind: "error" });
+  });
+});
 
 describe("loadSpaceView", () => {
   it("shows the space, its folders and its pages", async () => {

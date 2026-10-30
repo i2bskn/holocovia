@@ -17,6 +17,7 @@ import me from "./routes/me";
 import pagesApi from "./routes/pages";
 import searchApi from "./routes/search";
 import spacesApi from "./routes/spaces";
+import topPageApi from "./routes/top-page";
 import usersApi from "./routes/users";
 import { ErrorPage } from "./views/error";
 
@@ -42,7 +43,8 @@ const apiRoutes = app
   .route("/api/v1/pages", pagesApi)
   .route("/api/v1/folders", foldersApi)
   .route("/api/v1/attachments", attachmentsApi)
-  .route("/api/v1/search", searchApi);
+  .route("/api/v1/search", searchApi)
+  .route("/api/v1/top-page", topPageApi);
 
 // Types for hc<AppType>(). Only /api/v1/* is included.
 export type AppType = typeof apiRoutes;

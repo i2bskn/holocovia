@@ -67,6 +67,26 @@ button {
   padding: 1rem;
 }
 
+/* The page shown above the spaces on the home screen. */
+.top-page {
+  margin-bottom: 1.5rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid #ddd;
+}
+
+.top-page > h1 {
+  overflow-wrap: anywhere;
+}
+
+.top-page-help p {
+  color: #555;
+}
+
+/* The same size as .main h1, which it replaces when a top page is shown. */
+.spaces-heading {
+  font-size: 1.25rem;
+}
+
 .spaces {
   margin: 0;
   padding: 0;

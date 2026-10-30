@@ -19,8 +19,10 @@ import type {
   RestorePageRevisionRequest,
   SearchHit,
   SearchResult,
+  SetTopPageRequest,
   Space,
   SpaceList,
+  TopPage,
   TrashedPage,
   TrashList,
   UpdateFolderRequest,
@@ -44,6 +46,7 @@ type MovePageJson = InferRequestType<(typeof client.api.v1.pages)[":id"]["move"]
 type MoveFolderJson = InferRequestType<(typeof client.api.v1.folders)[":id"]["move"]["$post"]>["json"];
 type SearchQuery = InferRequestType<typeof client.api.v1.search.$get>["query"];
 type UploadAttachment = InferRequestType<(typeof client.api.v1.pages)[":id"]["attachments"]["$post"]>;
+type SetTopPageJson = InferRequestType<(typeof client.api.v1)["top-page"]["$put"]>["json"];
 type RestoreRevision = InferRequestType<
   (typeof client.api.v1.pages)[":id"]["revisions"][":version"]["restore"]["$post"]
 >;
@@ -180,6 +183,17 @@ describe("AppType", () => {
     const withoutId: InferRequestType<(typeof client.api.v1.users)[":id"]["$delete"]>["param"] = {};
     void param;
     void withoutId;
+  });
+
+  it("types the top page", () => {
+    expectTypeOf<SetTopPageJson>().toEqualTypeOf<SetTopPageRequest>();
+    expectTypeOf<InferResponseType<(typeof client.api.v1)["top-page"]["$get"], 200>>().toEqualTypeOf<TopPage>();
+    expectTypeOf<InferResponseType<(typeof client.api.v1)["top-page"]["$put"], 200>>().toEqualTypeOf<TopPage>();
+    const clear: SetTopPageJson = { page_id: null };
+    // @ts-expect-error page_id is required
+    const withoutPageId: SetTopPageJson = {};
+    void clear;
+    void withoutPageId;
   });
 
   it("types the trash", () => {

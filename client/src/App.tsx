@@ -62,7 +62,7 @@ export function App() {
 function Screen({ route, user }: { route: Route; user: User }) {
   switch (route.name) {
     case "home":
-      return <HomeView client={client} isAdmin={user.role === "admin"} />;
+      return <HomeView client={client} isAdmin={user.role === "admin"} origin={location.origin} />;
     case "space":
       return <SpaceView client={client} id={route.id} isAdmin={user.role === "admin"} />;
     case "trash":
@@ -70,7 +70,7 @@ function Screen({ route, user }: { route: Route; user: User }) {
     case "folder":
       return <FolderView client={client} id={route.id} />;
     case "page":
-      return <PageView client={client} id={route.id} origin={location.origin} />;
+      return <PageView client={client} id={route.id} origin={location.origin} isAdmin={user.role === "admin"} />;
     case "pageHistory":
       return <PageHistoryView client={client} id={route.id} />;
     case "pageRevision":

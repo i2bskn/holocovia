@@ -15,6 +15,7 @@ export const db = createDb(env.DB);
 
 export async function resetDb(): Promise<void> {
   await env.DB.batch([
+    env.DB.prepare("DELETE FROM site_settings"),
     env.DB.prepare("DELETE FROM sessions"),
     env.DB.prepare("DELETE FROM attachments"),
     env.DB.prepare("DELETE FROM page_revisions"),

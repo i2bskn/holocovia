@@ -92,14 +92,27 @@ export async function loadMe(client: ApiClient): Promise<Loaded<User>> {
   return { kind: "ready", data: me.value };
 }
 
-export type HomeData = { spaces: Space[] };
+// topPage is the page shown above the spaces, null when there is none. topPageError is true when it could
+// not be loaded; the spaces are shown anyway.
+export type HomeData = { spaces: Space[]; topPage: Page | null; topPageError: boolean };
 
 export async function loadHomeView(client: ApiClient): Promise<Loaded<HomeData>> {
-  const list = await request(() => client.api.v1.spaces.$get());
+  const [list, top] = await Promise.all([
+    request(() => client.api.v1.spaces.$get()),
+    request(() => client.api.v1["top-page"].$get()),
+  ]);
   if (list.kind === "redirecting") return list;
+  if (top.kind === "redirecting") return top;
   // The list itself is never missing; a 404 here is an unexpected response.
   if (list.kind === "notFound" || list.kind === "error") return { kind: "error", message: list.message };
-  return { kind: "ready", data: { spaces: list.value.spaces } };
+  return {
+    kind: "ready",
+    data: {
+      spaces: list.value.spaces,
+      topPage: top.kind === "ok" ? top.value.page : null,
+      topPageError: top.kind !== "ok",
+    },
+  };
 }
 
 // folders are all the folders of the space, as a flat list.
@@ -309,6 +322,15 @@ export async function loadAttachmentList(client: ApiClient, pageId: string): Pro
   if (list.kind === "redirecting") return list;
   if (list.kind !== "ok") return { kind: "error" };
   return { kind: "ok", value: list.value.attachments };
+}
+
+// The page shown at the top of the home screen (null when none), for the button of the page screen that
+// compares it with the page shown. Never rejects.
+export async function loadTopPage(client: ApiClient): Promise<ListResult<Page | null>> {
+  const top = await request(() => client.api.v1["top-page"].$get());
+  if (top.kind === "redirecting") return top;
+  if (top.kind !== "ok") return { kind: "error" };
+  return { kind: "ok", value: top.value.page };
 }
 
 // Loads a screen's data while the component is mounted, and again when key changes or reload is called.

@@ -176,6 +176,20 @@ export const attachments = sqliteTable(
   (t) => [index("attachments_page_id_idx").on(t.pageId)],
 );
 
+// Settings of the whole site. One row, id = 1, created when first set.
+export const siteSettings = sqliteTable(
+  "site_settings",
+  {
+    id: integer("id").primaryKey(),
+    // The page shown at the top of the home screen. Shown only while it is in an everyone space and not in
+    // the trash (checked when read).
+    topPageId: text("top_page_id").references(() => pages.id, { onDelete: "set null" }),
+    updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [check("site_settings_singleton_check", sql`${t.id} = 1`)],
+);
+
 export type UserRow = typeof users.$inferSelect;
 export type SessionRow = typeof sessions.$inferSelect;
 export type SpaceRow = typeof spaces.$inferSelect;

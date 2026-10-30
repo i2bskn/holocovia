@@ -1,17 +1,27 @@
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import type { Page, Space } from "../../../src/api/types";
-import { movePage, trashPage } from "../actions";
+import { movePage, setTopPage, trashPage } from "../actions";
 import { formatDateTime, spaceDisplayName, widerVisibilityWarning } from "../format";
 import { folderPath } from "../folders";
 import { Link } from "../Link";
-import { type ApiClient, loadPageView, useView } from "../load";
+import { type ApiClient, type ListResult, loadPageView, loadTopPage, useView } from "../load";
 import { Markdown } from "../Markdown";
 import { isValidId, navigate } from "../router";
 import { ViewStatus, useDocumentTitle, viewTitle } from "./common";
 import { MoveFolderSelect, MoveSpaceSelect, useMoveDestination } from "./MoveDestination";
 import { folderIdToValue, valueToFolderId } from "./PageEditor";
 
-export function PageView({ client, id, origin }: { client: ApiClient; id: string; origin: string }) {
+export function PageView({
+  client,
+  id,
+  origin,
+  isAdmin,
+}: {
+  client: ApiClient;
+  id: string;
+  origin: string;
+  isAdmin: boolean;
+}) {
   const [state, reload] = useView(() => loadPageView(client, id), id);
   // Whether the confirmation of moving the page to the trash is shown.
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -66,6 +76,8 @@ export function PageView({ client, id, origin }: { client: ApiClient; id: string
           </button>
         )}
       </p>
+      {/* Only pages in an everyone space can be shown at the top; the server checks it again. */}
+      {isAdmin && space?.kind === "everyone" && <TopPageButton client={client} page={page} />}
       {moving && (
         <MovePage
           client={client}
@@ -188,6 +200,71 @@ function MovePage({
         </p>
       )}
     </form>
+  );
+}
+
+type TopPageState =
+  | { kind: "idle" }
+  | { kind: "sending" }
+  | { kind: "done"; message: string }
+  | { kind: "error"; message: string }
+  // The move to the login page has started; the button stays disabled.
+  | { kind: "redirecting" };
+
+// The button for admins to show the page at the top of the home screen, or to stop showing it. The current
+// top page is loaded to tell which; nothing is shown until it is loaded. It loads the whole top page only to
+// compare the ID.
+function TopPageButton({ client, page }: { client: ApiClient; page: Page }) {
+  const [current, setCurrent] = useState<{ kind: "loading" } | ListResult<Page | null>>({ kind: "loading" });
+  const [state, setState] = useState<TopPageState>({ kind: "idle" });
+
+  useEffect(() => {
+    let cancelled = false;
+    setCurrent({ kind: "loading" });
+    void loadTopPage(client).then((next) => {
+      if (!cancelled) setCurrent(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // client does not change while the screen is shown.
+  }, [page.id]);
+
+  if (current.kind !== "ok") return null;
+  const isTop = current.value?.id === page.id;
+
+  async function onClick() {
+    setState({ kind: "sending" });
+    const result = await setTopPage(client, isTop ? null : page.id);
+    switch (result.kind) {
+      case "ok":
+        setCurrent({ kind: "ok", value: result.page });
+        setState({ kind: "done", message: isTop ? "トップから外しました" : "トップに表示しました" });
+        return;
+      case "error":
+        setState({ kind: "error", message: result.message });
+        return;
+      case "unknown":
+        setState({ kind: "error", message: MOVE_UNKNOWN_RESULT_MESSAGE });
+        return;
+      case "redirecting":
+        setState({ kind: "redirecting" });
+        return;
+    }
+  }
+
+  return (
+    <div className="folder-actions">
+      <button
+        type="button"
+        onClick={() => void onClick()}
+        disabled={state.kind === "sending" || state.kind === "redirecting"}
+      >
+        {isTop ? "トップから外す" : "トップに表示"}
+      </button>
+      {state.kind === "done" && <p role="status">{state.message}</p>}
+      {state.kind === "error" && <p role="alert">{state.message}</p>}
+    </div>
   );
 }
 

@@ -343,3 +343,15 @@ export type AttachmentList = {
   // Oldest first.
   attachments: Attachment[];
 };
+
+
+// The page shown at the top of the home screen, the same for every signed-in user. null when none is set, or
+// while the chosen page is not in an everyone space or is in the trash.
+export type TopPage = {
+  page: Page | null;
+};
+
+// Admins only. The page must be in an everyone space and not in the trash; null clears the setting.
+export type SetTopPageRequest = {
+  page_id: string | null;
+};

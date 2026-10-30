@@ -18,6 +18,7 @@ import {
   restoreRevision,
   restoreTrashedPage,
   revokeUserSessions,
+  setTopPage,
   trashPage,
   updateFolder,
   updatePage,
@@ -560,6 +561,57 @@ describe("createSpace", () => {
   it("is redirecting when login is required", async () => {
     const { client } = setup(apiError(401, "ログインしてください"), 401, url);
     expect(await createSpace(client, input)).toEqual({ kind: "redirecting" });
+  });
+});
+
+describe("setTopPage", () => {
+  const url = "/api/v1/top-page";
+
+  it("sends the page ID and is ok with the page on 200", async () => {
+    const { client, fetch } = setup(() => Response.json({ page: PAGE }), 401, url);
+    expect(await setTopPage(client, "p1")).toEqual({ kind: "ok", page: PAGE });
+    const init = fetch.mock.calls[0]?.[1];
+    expect(init?.method).toBe("PUT");
+    expect(JSON.parse(String(init?.body))).toEqual({ page_id: "p1" });
+  });
+
+  it("sends null to clear the setting and is ok with null", async () => {
+    const { client, fetch } = setup(() => Response.json({ page: null }), 401, url);
+    expect(await setTopPage(client, null)).toEqual({ kind: "ok", page: null });
+    expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toEqual({ page_id: null });
+  });
+
+  it("is an error when the response is not JSON", async () => {
+    const { client } = setup(() => new Response("ok", { status: 200 }), 401, url);
+    expect(await setTopPage(client, "p1")).toEqual({
+      kind: "error",
+      message: "サーバーから予期しない応答がありました（HTTP 200）",
+    });
+  });
+
+  it.each([
+    [400, "トップに表示できるのは全員スペースのページだけです"],
+    [403, "管理者の権限が必要です"],
+    [404, "ページが見つかりません"],
+  ])("is an error with the API message on %i", async (code, message) => {
+    const { client } = setup(apiError(code, message), 401, url);
+    expect(await setTopPage(client, "p1")).toEqual({ kind: "error", message });
+  });
+
+  it("is unknown when fetch rejects", async () => {
+    const { client } = setup(() => Promise.reject(new TypeError("Failed to fetch")), 401, url);
+    expect(await setTopPage(client, "p1")).toEqual({ kind: "unknown" });
+  });
+
+  it("is redirecting when login is required", async () => {
+    const { client } = setup(apiError(401, "ログインしてください"), 401, url);
+    expect(await setTopPage(client, null)).toEqual({ kind: "redirecting" });
+  });
+
+  it("is an error without sending for an invalid ID", async () => {
+    const { client, fetch } = setup(() => Response.json({ page: null }), 401, url);
+    expect(await setTopPage(client, "../users")).toEqual({ kind: "error", message: "ページが見つかりません" });
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
 

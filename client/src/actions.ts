@@ -321,6 +321,26 @@ export async function deleteSpace(client: ApiClient, spaceId: string): Promise<S
   return resourceActionResult(await send(() => client.api.v1.spaces[":id"].$delete({ param: { id: spaceId } })));
 }
 
+export type SetTopPageResult = { kind: "ok"; page: Page | null } | SendFailure;
+
+// Shows a page at the top of the home screen, or clears the setting with null. Admins only. Errors,
+// including a page outside an everyone space and a missing page, are shown with the server's message.
+// Never rejects.
+export async function setTopPage(client: ApiClient, pageId: string | null): Promise<SetTopPageResult> {
+  if (pageId !== null && !isValidId(pageId)) return { kind: "error", message: "ページが見つかりません" };
+  const sent = await send(() => client.api.v1["top-page"].$put({ json: { page_id: pageId } }));
+  if (sent.kind !== "response") return sent;
+  const { res } = sent;
+  if (res.ok) {
+    try {
+      return { kind: "ok", page: (await res.json()).page };
+    } catch {
+      return { kind: "error", message: unexpectedResponseMessage(res.status) };
+    }
+  }
+  return { kind: "error", message: await responseErrorMessage(res) };
+}
+
 export type UploadAttachmentResult =
   | { kind: "ok"; attachment: Attachment }
   // The page is missing, in the trash, or not accessible.
