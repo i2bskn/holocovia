@@ -8,6 +8,8 @@ import { LoadError, NotFound, useDocumentTitle } from "./views/common";
 import { ErrorBoundary } from "./views/ErrorBoundary";
 import { FolderView } from "./views/FolderView";
 import { HomeView } from "./views/HomeView";
+import { PageHistoryView } from "./views/PageHistoryView";
+import { PageRevisionView } from "./views/PageRevisionView";
 import { PageView } from "./views/PageView";
 import { SearchView } from "./views/SearchView";
 import { SpaceView } from "./views/SpaceView";
@@ -59,6 +61,10 @@ function Screen({ route }: { route: Route }) {
       return <FolderView client={client} id={route.id} />;
     case "page":
       return <PageView client={client} id={route.id} origin={location.origin} />;
+    case "pageHistory":
+      return <PageHistoryView client={client} id={route.id} />;
+    case "pageRevision":
+      return <PageRevisionView client={client} id={route.id} version={route.version} origin={location.origin} />;
     case "search":
       return <SearchView client={client} query={route.query} />;
     case "notFound":

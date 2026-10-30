@@ -16,6 +16,7 @@ export const db = createDb(env.DB);
 export async function resetDb(): Promise<void> {
   await env.DB.batch([
     env.DB.prepare("DELETE FROM sessions"),
+    env.DB.prepare("DELETE FROM page_revisions"),
     env.DB.prepare("DELETE FROM pages"),
     // One statement, so the foreign key from parent_id is checked only after all folders are gone.
     env.DB.prepare("DELETE FROM folders"),

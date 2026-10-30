@@ -2,7 +2,15 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { asc } from "drizzle-orm";
 import { z } from "zod";
-import type { FolderList, PageList, SearchResult, SpaceList, UpdateFolderInput, UpdatePageInput } from "../api/types";
+import type {
+  FolderList,
+  PageList,
+  PageRevisionList,
+  SearchResult,
+  SpaceList,
+  UpdateFolderInput,
+  UpdatePageInput,
+} from "../api/types";
 import { describeError } from "../auth/middleware";
 import type { Db } from "../db/client";
 import { spaces, type UserRow } from "../db/schema";
@@ -22,6 +30,7 @@ import {
   parentNotFoundOnMoveMessage,
 } from "../folders/validation";
 import { findAccessiblePage, listPageSummaries } from "../pages/queries";
+import { findAccessiblePageRevision, listAccessiblePageRevisions, restorePageRevision } from "../pages/revisions";
 import { searchAccessiblePages } from "../pages/search";
 import { createPage, updatePage } from "../pages/service";
 import {
@@ -35,9 +44,18 @@ import {
   normalizeSearchQuery,
   normalizeVersion,
   pageNotFoundMessage,
+  revisionNotFoundMessage,
   versionConflictMessage,
 } from "../pages/validation";
-import { toApiFolder, toApiPage, toApiPageSummary, toApiSearchHit, toApiSpace } from "../routes/api";
+import {
+  toApiFolder,
+  toApiPage,
+  toApiPageRevision,
+  toApiPageRevisionSummary,
+  toApiPageSummary,
+  toApiSearchHit,
+  toApiSpace,
+} from "../routes/api";
 import { accessibleSpacesWhere, canAccessSpace } from "../spaces/access";
 import { findSpaceById } from "../spaces/queries";
 
@@ -209,7 +227,8 @@ export function registerTools(server: McpServer, { db, user }: ToolDeps): void {
         "A page cannot be moved to another space. " +
         "version must be the current version from get_page; if someone else updated the page first, " +
         "the call fails and nothing is changed. body replaces the whole body. " +
-        "There is no edit history yet, so the previous content cannot be restored. " +
+        "The previous title and body are kept as a revision (the newest 20 per page); " +
+        "use list_page_revisions and restore_page_revision to go back. " +
         "Returns the page's metadata without the body.",
       inputSchema: {
         page_id: z.string().describe("The id of a page returned by list_pages"),
@@ -237,7 +256,7 @@ export function registerTools(server: McpServer, { db, user }: ToolDeps): void {
               "null moves it to the top level of the space. Omit to keep the current folder",
           ),
       },
-      // Destructive: there is no history, so overwritten content cannot be restored.
+      // Destructive: only the newest 20 revisions are kept, so older content is deleted by the update.
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     },
     ({ page_id, version, title, body, folder_id }) =>
@@ -269,6 +288,92 @@ export function registerTools(server: McpServer, { db, user }: ToolDeps): void {
         if (result.error === "folder_not_found") return errorResult(folderNotFoundMessage);
         return errorResult(
           `${versionConflictMessage}。get_page で最新の version と本文を取得し、変更を反映し直してから update_page を呼んでください`,
+        );
+      }),
+  );
+
+  server.registerTool(
+    "list_page_revisions",
+    {
+      description:
+        "List the earlier versions (revisions) of a page, newest first, without their bodies. " +
+        "The current content is not included; use get_page for it. Only the newest 20 revisions are kept per page. " +
+        "Each revision has the version the page had when that was its content. " +
+        "Use get_page_revision to read one, and restore_page_revision to go back to it.",
+      inputSchema: { page_id: z.string().describe("The id of a page returned by list_pages") },
+      annotations: readOnlyAnnotations,
+    },
+    ({ page_id }) =>
+      guard("list_page_revisions", async () => {
+        const result = await listAccessiblePageRevisions(db, user, page_id);
+        if (!result.ok) return errorResult(pageNotFoundMessage);
+        const body: PageRevisionList = { revisions: result.revisions.map(toApiPageRevisionSummary) };
+        return jsonResult(body);
+      }),
+  );
+
+  server.registerTool(
+    "get_page_revision",
+    {
+      description: "Get an earlier version (revision) of a page with its title and Markdown body.",
+      inputSchema: {
+        page_id: z.string().describe("The id of a page returned by list_pages"),
+        // Not z.number().int(): an invalid one is reported as a missing revision, as in the REST API.
+        revision_version: z.number().describe("The version of a revision returned by list_page_revisions"),
+      },
+      annotations: readOnlyAnnotations,
+    },
+    ({ page_id, revision_version }) =>
+      guard("get_page_revision", async () => {
+        // An invalid revision_version is reported after the page is checked, as in the REST API.
+        const result = await findAccessiblePageRevision(db, user, page_id, normalizeVersion(revision_version));
+        if (result.ok) return jsonResult(toApiPageRevision(result.revision));
+        if (result.error === "not_found") return errorResult(pageNotFoundMessage);
+        return errorResult(revisionNotFoundMessage);
+      }),
+  );
+
+  server.registerTool(
+    "restore_page_revision",
+    {
+      description:
+        "Go back to an earlier version (revision) of a page: its title and body become the page's content. " +
+        "The current title and body are kept as a new revision, the version is incremented, and the folder does not change. " +
+        "revision_version: the version to go back to, from list_page_revisions. " +
+        "version: the current version of the page from get_page; if someone else updated the page first, " +
+        "the call fails and nothing is changed. Only the newest 20 revisions are kept, so the oldest one may be deleted. " +
+        "Returns the page's metadata without the body.",
+      inputSchema: {
+        page_id: z.string().describe("The id of a page returned by list_pages"),
+        revision_version: z.number().describe("The version to go back to, from list_page_revisions"),
+        // Not z.number().int(): normalizeVersion checks it, so that the message is the same as in the REST API.
+        version: z
+          .number()
+          .describe(
+            "The current version of the page from get_page, an integer of 1 or more. " +
+              "If someone else updated the page first, the call fails",
+          ),
+      },
+      // Destructive like update_page: the update deletes revisions older than the newest 20.
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    },
+    ({ page_id, revision_version, version }) =>
+      guard("restore_page_revision", async () => {
+        // Validated in the same order as POST /api/v1/pages/:id/revisions/:version/restore.
+        const normalizedVersion = normalizeVersion(version);
+        if (normalizedVersion === null) return errorResult(invalidVersionMessage);
+        const result = await restorePageRevision(
+          db,
+          user,
+          page_id,
+          normalizeVersion(revision_version),
+          normalizedVersion,
+        );
+        if (result.ok) return jsonResult(toApiPageSummary(result.page));
+        if (result.error === "not_found") return errorResult(pageNotFoundMessage);
+        if (result.error === "revision_not_found") return errorResult(revisionNotFoundMessage);
+        return errorResult(
+          `${versionConflictMessage}。get_page で最新の version を取得してから restore_page_revision を呼んでください`,
         );
       }),
   );

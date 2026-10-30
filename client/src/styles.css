@@ -279,6 +279,61 @@ a {
   border-top: 1px solid #ddd;
 }
 
+.page-history-link {
+  margin-left: 0.5rem;
+}
+
+.revisions {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.revisions li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0 1rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #eee;
+}
+
+.revision-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 0.75rem;
+  min-width: 0;
+}
+
+.revision-detail {
+  min-width: 0;
+  color: #555;
+}
+
+.revision-notice {
+  margin: 1rem 0;
+  padding: 0.5rem 1rem;
+  background: #f8f8f8;
+  border: 1px solid #ddd;
+  border-radius: 0.25rem;
+}
+
+.revision-notice p {
+  margin: 0.5rem 0;
+}
+
+.revision-page-title {
+  font-size: 1.125rem;
+}
+
+.restore-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
 .search-form {
   display: flex;
   flex: 1 1 16rem;

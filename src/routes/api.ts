@@ -1,6 +1,7 @@
 import type { Context, MiddlewareHandler } from "hono";
-import type { Folder, Page, PageSummary, SearchHit, Space, User } from "../api/types";
-import type { FolderRow, PageRow, SpaceRow, UserRow } from "../db/schema";
+import type { Folder, Page, PageRevision, PageRevisionSummary, PageSummary, SearchHit, Space, User } from "../api/types";
+import type { FolderRow, PageRevisionRow, PageRow, SpaceRow, UserRow } from "../db/schema";
+import type { RevisionSummaryRow } from "../pages/revisions";
 import type { SearchHitRow } from "../pages/search";
 import type { AppEnv } from "../env";
 import { apiError } from "../auth/middleware";
@@ -57,6 +58,26 @@ export function toApiPageSummary(page: Omit<PageRow, "body">): PageSummary {
 
 export function toApiPage(page: PageRow): Page {
   return { ...toApiPageSummary(page), body: page.body };
+}
+
+export function toApiPageRevisionSummary(revision: RevisionSummaryRow): PageRevisionSummary {
+  return {
+    version: revision.version,
+    title: revision.title,
+    created_by: revision.createdBy,
+    created_at: revision.createdAt,
+  };
+}
+
+export function toApiPageRevision(revision: PageRevisionRow): PageRevision {
+  return {
+    page_id: revision.pageId,
+    version: revision.version,
+    title: revision.title,
+    created_by: revision.createdBy,
+    created_at: revision.createdAt,
+    body: revision.body,
+  };
 }
 
 export function toApiSearchHit(hit: SearchHitRow): SearchHit {

@@ -9,7 +9,10 @@ import type {
   FolderList,
   Page,
   PageList,
+  PageRevision,
+  PageRevisionList,
   PageSummary,
+  RestorePageRevisionRequest,
   SearchHit,
   SearchResult,
   Space,
@@ -32,6 +35,9 @@ type UpdatePageJson = InferRequestType<(typeof client.api.v1.pages)[":id"]["$pat
 type CreateFolderJson = InferRequestType<(typeof client.api.v1.spaces)[":id"]["folders"]["$post"]>["json"];
 type UpdateFolderJson = InferRequestType<(typeof client.api.v1.folders)[":id"]["$patch"]>["json"];
 type SearchQuery = InferRequestType<typeof client.api.v1.search.$get>["query"];
+type RestoreRevision = InferRequestType<
+  (typeof client.api.v1.pages)[":id"]["revisions"][":version"]["restore"]["$post"]
+>;
 
 describe("AppType", () => {
   it("types the request body of POST /api/v1/users", () => {
@@ -91,6 +97,15 @@ describe("AppType", () => {
     void withoutQ;
   });
 
+  it("types the request of restoring a revision", () => {
+    expectTypeOf<RestoreRevision["json"]>().toEqualTypeOf<RestorePageRevisionRequest>();
+    const param: RestoreRevision["param"] = { id: "p1", version: "3" };
+    // @ts-expect-error version is required for optimistic locking
+    const withoutVersion: RestoreRevision["json"] = {};
+    void param;
+    void withoutVersion;
+  });
+
   it("types successful response bodies", () => {
     expectTypeOf<InferResponseType<typeof client.api.v1.me.$get, 200>>().toEqualTypeOf<User>();
     expectTypeOf<InferResponseType<typeof client.api.v1.users.$get, 200>>().toEqualTypeOf<UserList>();
@@ -106,5 +121,12 @@ describe("AppType", () => {
     expectTypeOf<InferResponseType<(typeof client.api.v1.spaces)[":id"]["folders"]["$post"], 201>>().toEqualTypeOf<Folder>();
     expectTypeOf<InferResponseType<(typeof client.api.v1.folders)[":id"]["$get"], 200>>().toEqualTypeOf<Folder>();
     expectTypeOf<InferResponseType<(typeof client.api.v1.folders)[":id"]["$patch"], 200>>().toEqualTypeOf<Folder>();
+    expectTypeOf<InferResponseType<(typeof client.api.v1.pages)[":id"]["revisions"]["$get"], 200>>().toEqualTypeOf<PageRevisionList>();
+    expectTypeOf<
+      InferResponseType<(typeof client.api.v1.pages)[":id"]["revisions"][":version"]["$get"], 200>
+    >().toEqualTypeOf<PageRevision>();
+    expectTypeOf<
+      InferResponseType<(typeof client.api.v1.pages)[":id"]["revisions"][":version"]["restore"]["$post"], 200>
+    >().toEqualTypeOf<Page>();
   });
 });

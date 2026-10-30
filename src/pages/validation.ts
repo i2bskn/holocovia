@@ -15,6 +15,7 @@ export const invalidPageBodyMessage = "本文は 512KB 以下で、NUL 文字を
 export const invalidVersionMessage = "version は 1 以上の整数で指定してください";
 export const emptyUpdateMessage = "title、body、folder_id のいずれかを指定してください";
 export const versionConflictMessage = "ページが他の人に更新されています。最新の内容を取得してからやり直してください";
+export const revisionNotFoundMessage = "この版は見つかりません。古い版は新しい 20 版を残して削除されます";
 export const invalidSearchQueryMessage =
   "検索語は 1 文字以上 100 文字以下で、改行などの制御文字を含まない文字列にしてください";
 
@@ -38,6 +39,14 @@ export function isValidPageBody(value: unknown): value is string {
 // Returns the version, or null unless it is an integer of 1 or more.
 export function normalizeVersion(value: unknown): number | null {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 1 ? value : null;
+}
+
+// A version in a path, such as /pages/:id/revisions/:version. Returns null unless it is written as an
+// integer of 1 or more without leading zeros or a sign.
+export function parseVersionParam(value: string): number | null {
+  if (!/^[1-9][0-9]{0,15}$/.test(value)) return null;
+  const version = Number(value);
+  return Number.isSafeInteger(version) ? version : null;
 }
 
 // Returns the trimmed search query, or null if invalid. Length is counted in code points; no Unicode normalization.

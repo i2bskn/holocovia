@@ -3,11 +3,32 @@ import { createExecutionContext } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Folder, FolderList, Page, PageList, PageSummary, SearchResult, Space, SpaceList } from "../src/api/types";
+import type {
+  Folder,
+  FolderList,
+  Page,
+  PageList,
+  PageRevision,
+  PageRevisionList,
+  PageSummary,
+  SearchResult,
+  Space,
+  SpaceList,
+} from "../src/api/types";
 import { safeNext } from "../src/auth/redirect";
 import { issueSession } from "../src/auth/sessions";
 import { base64UrlEncode, signAccessToken } from "../src/auth/tokens";
-import { folders, pages, spaces, users, type FolderRow, type PageRow, type SpaceRow, type UserRow } from "../src/db/schema";
+import {
+  folders,
+  pageRevisions,
+  pages,
+  spaces,
+  users,
+  type FolderRow,
+  type PageRow,
+  type SpaceRow,
+  type UserRow,
+} from "../src/db/schema";
 import type { Bindings } from "../src/env";
 import { mcpHandler } from "../src/mcp/handler";
 import { buildOAuthProviderOptions } from "../src/mcp/provider";
@@ -348,7 +369,7 @@ describe("POST /authorize", () => {
 });
 
 describe("MCP", () => {
-  it("initializes and lists the ten tools with their annotations", async () => {
+  it("initializes and lists the thirteen tools with their annotations", async () => {
     const { access_token } = await authorizeClient(memberCookies);
     const init = await mcpRequest(access_token, "initialize", {
       protocolVersion: "2025-06-18",
@@ -369,9 +390,12 @@ describe("MCP", () => {
       "create_page",
       "delete_folder",
       "get_page",
+      "get_page_revision",
       "list_folders",
+      "list_page_revisions",
       "list_pages",
       "list_spaces",
+      "restore_page_revision",
       "search_pages",
       "update_folder",
       "update_page",
@@ -390,6 +414,9 @@ describe("MCP", () => {
       create_folder: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
       update_folder: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       delete_folder: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+      list_page_revisions: readOnly,
+      get_page_revision: readOnly,
+      restore_page_revision: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     });
   });
 
@@ -757,6 +784,177 @@ describe("MCP write tools", () => {
       }
       expectToolError(
         await callTool(token, "update_page", { page_id: "missing", version: 1, body: "x" }),
+        pageNotFound,
+      );
+    });
+  });
+});
+
+describe("MCP revision tools", () => {
+  const pageNotFound = "ページが見つかりません";
+  const revisionNotFound = "この版は見つかりません。古い版は新しい 20 版を残して削除されます";
+  const invalidVersion = "version は 1 以上の整数で指定してください";
+
+  let token: string;
+  let everyone: SpaceRow;
+  let page: PageRow;
+
+  beforeEach(async () => {
+    token = (await authorizeClient(memberCookies)).access_token;
+    everyone = await insertSpace("everyone", "Everyone");
+    page = await insertPage({ spaceId: everyone.id, title: "Title 1", body: "Body 1", createdBy: admin.id });
+    const updated = await callTool(token, "update_page", { page_id: page.id, version: 1, title: "Title 2", body: "Body 2" });
+    expect(toolJson<PageSummary>(updated).version).toBe(2);
+  });
+
+  async function readPage(id: string): Promise<PageRow | undefined> {
+    return db.query.pages.findFirst({ where: eq(pages.id, id) });
+  }
+
+  async function countRevisions(pageId: string): Promise<number> {
+    const rows = await db.select().from(pageRevisions).where(eq(pageRevisions.pageId, pageId)).all();
+    return rows.length;
+  }
+
+  async function inaccessiblePages(): Promise<PageRow[]> {
+    const adminSpace = await insertSpace("admin", "Admins");
+    const adminPage = await insertPage({ spaceId: adminSpace.id, title: "Secret", body: "Secret" });
+    const othersPage = await insertPage({ spaceId: (await personalSpaceOf(admin)).id, title: "Own", body: "Own" });
+    const adminToken = (await authorizeClient(adminCookies)).access_token;
+    for (const target of [adminPage, othersPage]) {
+      const result = await callTool(adminToken, "update_page", { page_id: target.id, version: 1, body: "changed" });
+      expect(toolJson<PageSummary>(result).version).toBe(2);
+    }
+    return [adminPage, othersPage];
+  }
+
+  it("describes update_page with the revisions", async () => {
+    const list = await mcpRequest(token, "tools/list");
+    const body = (await list.json()) as { result: { tools: { name: string; description: string }[] } };
+    const description = body.result.tools.find((t) => t.name === "update_page")?.description ?? "";
+    expect(description).toContain(
+      "The previous title and body are kept as a revision (the newest 20 per page); " +
+        "use list_page_revisions and restore_page_revision to go back.",
+    );
+    expect(description).not.toContain("There is no edit history yet");
+  });
+
+  describe("list_page_revisions", () => {
+    it("returns the same revisions as the REST API", async () => {
+      const result = toolJson<PageRevisionList>(await callTool(token, "list_page_revisions", { page_id: page.id }));
+      expect(result.revisions).toEqual([
+        { version: 1, title: "Title 1", created_by: admin.id, created_at: page.updatedAt },
+      ]);
+      const res = await send(`/api/v1/pages/${page.id}/revisions`, { cookies: memberCookies });
+      expect(await res.json()).toEqual(result);
+    });
+
+    it("reports pages in inaccessible spaces and unknown pages as missing", async () => {
+      for (const target of await inaccessiblePages()) {
+        expectToolError(await callTool(token, "list_page_revisions", { page_id: target.id }), pageNotFound);
+      }
+      expectToolError(await callTool(token, "list_page_revisions", { page_id: "missing" }), pageNotFound);
+    });
+  });
+
+  describe("get_page_revision", () => {
+    it("returns the revision with its body, like the REST API", async () => {
+      const result = toolJson<PageRevision>(
+        await callTool(token, "get_page_revision", { page_id: page.id, revision_version: 1 }),
+      );
+      expect(result).toEqual({
+        page_id: page.id,
+        version: 1,
+        title: "Title 1",
+        created_by: admin.id,
+        created_at: page.updatedAt,
+        body: "Body 1",
+      });
+      const res = await send(`/api/v1/pages/${page.id}/revisions/1`, { cookies: memberCookies });
+      expect(await res.json()).toEqual(result);
+    });
+
+    it.each([2, 3, 0, -1, 1.5, 2 ** 53])("reports revision_version %s as missing", async (revision_version) => {
+      expectToolError(
+        await callTool(token, "get_page_revision", { page_id: page.id, revision_version }),
+        revisionNotFound,
+      );
+    });
+
+    it("does not return a revision of another page", async () => {
+      const other = await insertPage({ spaceId: everyone.id, title: "Other", body: "" });
+      expectToolError(
+        await callTool(token, "get_page_revision", { page_id: other.id, revision_version: 1 }),
+        revisionNotFound,
+      );
+    });
+
+    it("reports pages in inaccessible spaces and unknown pages as missing", async () => {
+      for (const target of await inaccessiblePages()) {
+        for (const revision_version of [1, 0]) {
+          expectToolError(
+            await callTool(token, "get_page_revision", { page_id: target.id, revision_version }),
+            pageNotFound,
+          );
+        }
+      }
+      expectToolError(
+        await callTool(token, "get_page_revision", { page_id: "missing", revision_version: 1 }),
+        pageNotFound,
+      );
+    });
+  });
+
+  describe("restore_page_revision", () => {
+    it("restores the revision and returns the page without the body", async () => {
+      const result = toolJson<PageSummary>(
+        await callTool(token, "restore_page_revision", { page_id: page.id, revision_version: 1, version: 2 }),
+      );
+      expect(result).not.toHaveProperty("body");
+      expect(result).toMatchObject({ id: page.id, title: "Title 1", version: 3, updated_by: member.id });
+      expect(await readPage(page.id)).toMatchObject({ title: "Title 1", body: "Body 1", version: 3 });
+      expect(await countRevisions(page.id)).toBe(2);
+    });
+
+    it("reports a stale version with guidance and changes nothing", async () => {
+      const before = await readPage(page.id);
+      expectToolError(
+        await callTool(token, "restore_page_revision", { page_id: page.id, revision_version: 1, version: 1 }),
+        "ページが他の人に更新されています。最新の内容を取得してからやり直してください。get_page で最新の version を取得してから restore_page_revision を呼んでください",
+      );
+      expect(await readPage(page.id)).toEqual(before);
+      expect(await countRevisions(page.id)).toBe(1);
+    });
+
+    it.each([0, 1.5])("rejects version %s before checking the page", async (version) => {
+      for (const page_id of [page.id, "missing"]) {
+        expectToolError(
+          await callTool(token, "restore_page_revision", { page_id, revision_version: 1, version }),
+          invalidVersion,
+        );
+      }
+      expect((await readPage(page.id))?.version).toBe(2);
+    });
+
+    it.each([2, 0, 1.5])("reports revision_version %s as missing", async (revision_version) => {
+      expectToolError(
+        await callTool(token, "restore_page_revision", { page_id: page.id, revision_version, version: 2 }),
+        revisionNotFound,
+      );
+      expect((await readPage(page.id))?.version).toBe(2);
+    });
+
+    it("reports pages in inaccessible spaces and unknown pages as missing", async () => {
+      for (const target of await inaccessiblePages()) {
+        const before = await readPage(target.id);
+        expectToolError(
+          await callTool(token, "restore_page_revision", { page_id: target.id, revision_version: 1, version: 2 }),
+          pageNotFound,
+        );
+        expect(await readPage(target.id)).toEqual(before);
+      }
+      expectToolError(
+        await callTool(token, "restore_page_revision", { page_id: "missing", revision_version: 1, version: 1 }),
         pageNotFound,
       );
     });

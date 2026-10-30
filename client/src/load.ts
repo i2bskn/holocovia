@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Folder, Page, PageSummary, SearchHit, Space, User } from "../../src/api/types";
+import type { Folder, Page, PageRevision, PageRevisionSummary, PageSummary, SearchHit, Space, User } from "../../src/api/types";
 import {
   LoginRequiredError,
   type createApiClient,
@@ -160,6 +160,45 @@ export async function loadPageView(client: ApiClient, id: string): Promise<Loade
       folders: folders.kind === "ok" ? folders.value.folders : null,
     },
   };
+}
+
+// space is null when it could not be loaded; the history is shown anyway.
+export type PageHistoryData = { page: Page; space: Space | null; revisions: PageRevisionSummary[] };
+
+export async function loadPageHistoryView(client: ApiClient, id: string): Promise<Loaded<PageHistoryData>> {
+  if (!isValidId(id)) return { kind: "notFound" };
+  const param = { param: { id } };
+  const [page, list] = await Promise.all([
+    request(() => client.api.v1.pages[":id"].$get(param)),
+    request(() => client.api.v1.pages[":id"].revisions.$get(param)),
+  ]);
+  if (page.kind !== "ok" || list.kind !== "ok") return failure([page, list]);
+  // The space needs space_id from the page, so it is loaded after it.
+  const spaceId = page.value.space_id;
+  const data = { page: page.value, revisions: list.value.revisions };
+  if (!isValidId(spaceId)) return { kind: "ready", data: { ...data, space: null } };
+  const space = await request(() => client.api.v1.spaces[":id"].$get({ param: { id: spaceId } }));
+  if (space.kind === "redirecting") return space;
+  return { kind: "ready", data: { ...data, space: space.kind === "ok" ? space.value : null } };
+}
+
+// page is the current page; restoring needs its version.
+export type PageRevisionData = { page: Page; revision: PageRevision };
+
+export async function loadPageRevisionView(
+  client: ApiClient,
+  id: string,
+  version: number,
+): Promise<Loaded<PageRevisionData>> {
+  if (!isValidId(id)) return { kind: "notFound" };
+  const [revision, page] = await Promise.all([
+    request(() => client.api.v1.pages[":id"].revisions[":version"].$get({ param: { id, version: String(version) } })),
+    request(() => client.api.v1.pages[":id"].$get({ param: { id } })),
+  ]);
+  if (revision.kind === "ok" && page.kind === "ok") {
+    return { kind: "ready", data: { page: page.value, revision: revision.value } };
+  }
+  return failure([revision, page]);
 }
 
 // query is trimmed. spaceNames maps space_id to the display name; it is empty when the spaces

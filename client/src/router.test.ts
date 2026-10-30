@@ -29,6 +29,37 @@ describe("matchRoute", () => {
     },
   );
 
+  it("matches the history and revision screens of a page", () => {
+    expect(matchRoute("/pages/x/history")).toEqual({ name: "pageHistory", id: "x" });
+    expect(matchRoute(`/pages/${UUID}/history`)).toEqual({ name: "pageHistory", id: UUID });
+    expect(matchRoute("/pages/x/revisions/3")).toEqual({ name: "pageRevision", id: "x", version: 3 });
+    expect(matchRoute("/pages/x/revisions/9007199254740991")).toEqual({
+      name: "pageRevision",
+      id: "x",
+      version: 9007199254740991,
+    });
+  });
+
+  it.each([
+    "/pages/x/revisions/0",
+    "/pages/x/revisions/01",
+    "/pages/x/revisions/abc",
+    "/pages/x/revisions/1.5",
+    "/pages/x/revisions/-1",
+    "/pages/x/revisions/9007199254740992",
+    "/pages/x/revisions/12345678901234567",
+    "/pages/x/revisions/",
+    "/pages/x/revisions",
+    "/pages/x/revisions/3/extra",
+    "/pages/x/history/",
+    "/pages/x/history/1",
+    "/pages/a.b/history",
+    "/pages/a.b/revisions/1",
+    "/spaces/x/history",
+  ])("does not match %s", (path) => {
+    expect(matchRoute(path)).toEqual({ name: "notFound" });
+  });
+
   it("matches the search screen with its query", () => {
     expect(matchRoute("/search?q=abc")).toEqual({ name: "search", query: "abc" });
     expect(matchRoute("/search")).toEqual({ name: "search", query: "" });

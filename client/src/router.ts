@@ -5,6 +5,8 @@ export type Route =
   | { name: "space"; id: string }
   | { name: "folder"; id: string }
   | { name: "page"; id: string }
+  | { name: "pageHistory"; id: string }
+  | { name: "pageRevision"; id: string; version: number }
   | { name: "search"; query: string }
   | { name: "notFound" };
 
@@ -18,6 +20,32 @@ export function isValidId(id: string): boolean {
 }
 
 const ROUTE_PATTERN = /^\/(spaces|folders|pages)\/([^/]+)$/;
+const PAGE_HISTORY_PATTERN = /^\/pages\/([^/]+)\/history$/;
+const PAGE_REVISION_PATTERN = /^\/pages\/([^/]+)\/revisions\/([^/]+)$/;
+
+// A page version in a path: an integer of 1 or more, without leading zeros. null otherwise.
+function parseVersion(value: string): number | null {
+  if (!/^[1-9][0-9]{0,15}$/.test(value)) return null;
+  const version = Number(value);
+  return Number.isSafeInteger(version) ? version : null;
+}
+
+function matchPageSubroute(pathname: string): Route | null {
+  const history = PAGE_HISTORY_PATTERN.exec(pathname);
+  if (history) {
+    const [, id] = history;
+    return id !== undefined && isValidId(id) ? { name: "pageHistory", id } : { name: "notFound" };
+  }
+  const revision = PAGE_REVISION_PATTERN.exec(pathname);
+  if (revision) {
+    const [, id, value] = revision;
+    const version = value === undefined ? null : parseVersion(value);
+    return id !== undefined && isValidId(id) && version !== null
+      ? { name: "pageRevision", id, version }
+      : { name: "notFound" };
+  }
+  return null;
+}
 
 // path is the pathname followed by the search part, if any. Only /search reads the search part.
 export function matchRoute(path: string): Route {
@@ -27,6 +55,8 @@ export function matchRoute(path: string): Route {
   if (pathname === "/") return { name: "home" };
   // URLSearchParams decodes the value and reads "+" as a space.
   if (pathname === "/search") return { name: "search", query: new URLSearchParams(search).get("q") ?? "" };
+  const subroute = matchPageSubroute(pathname);
+  if (subroute) return subroute;
   const match = ROUTE_PATTERN.exec(pathname);
   if (!match) return { name: "notFound" };
   const [, kind, id] = match;

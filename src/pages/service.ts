@@ -8,6 +8,7 @@ import { folderExistsInSpace } from "../folders/queries";
 import { canAccessSpace } from "../spaces/access";
 import { findSpaceById } from "../spaces/queries";
 import { findAccessiblePage, findPageById } from "./queries";
+import { insertRevisionQuery, pruneRevisionsQuery } from "./revisions";
 
 // Shared by the REST API and the MCP tools. Input is validated by the callers (see validation.ts).
 
@@ -79,7 +80,9 @@ export async function updatePage(
   if (typeof folderId === "string") {
     conditions.push(sql`EXISTS (SELECT 1 FROM ${folders} f WHERE f.id = ${folderId} AND f.space_id = ${page.spaceId})`);
   }
-  const updated = await db
+  // The revision is copied with the same condition, so that it is kept only when the update happens.
+  const where = and(...conditions);
+  const update = db
     .update(pages)
     .set({
       ...(input.title !== undefined && { title: input.title }),
@@ -89,9 +92,17 @@ export async function updatePage(
       updatedBy: user.id,
       updatedAt: clock.now(),
     })
-    .where(and(...conditions))
-    .returning()
-    .get();
+    .where(where)
+    .returning();
+  let updated: PageRow | undefined;
+  if (input.title !== undefined || input.body !== undefined) {
+    // One batch (a transaction in D1). The copy comes first so that it reads the values before the update.
+    // Kept even if the values do not change. Moving to another folder alone keeps no revision.
+    const [, rows] = await db.batch([insertRevisionQuery(db, where), update, pruneRevisionsQuery(db, page.id)]);
+    updated = rows[0];
+  } else {
+    updated = await update.get();
+  }
   if (updated) return { ok: true, page: updated };
 
   // Access is not checked again: the page was visible just before.

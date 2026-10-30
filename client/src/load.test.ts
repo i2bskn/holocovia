@@ -1,7 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
-import type { Folder, Page, PageSummary, SearchHit, Space } from "../../src/api/types";
+import type { Folder, Page, PageRevision, PageRevisionSummary, PageSummary, SearchHit, Space } from "../../src/api/types";
 import { createApiClient, createApiFetch } from "./api";
-import { loadFolderView, loadPageView, loadSearchView, loadSpaceView } from "./load";
+import {
+  loadFolderView,
+  loadPageHistoryView,
+  loadPageRevisionView,
+  loadPageView,
+  loadSearchView,
+  loadSpaceView,
+} from "./load";
 
 const SPACE: Space = { id: "s1", kind: "everyone", name: "開発", created_at: 1, updated_at: 2 };
 const SUMMARY: PageSummary = {
@@ -36,6 +43,9 @@ function json(code: number, body: unknown): Reply {
 function apiError(code: number, message: string): Reply {
   return json(code, { error: { code: "error", message } });
 }
+
+const REVISION_SUMMARY: PageRevisionSummary = { version: 1, title: "旧手順", created_by: "u1", created_at: 1 };
+const REVISION: PageRevision = { page_id: "p1", ...REVISION_SUMMARY, body: "# 旧手順" };
 
 // fetch that answers each URL from its own queue, in order. /auth/refresh answers 204 unless given.
 function setup(routes: Record<string, Reply[]>) {
@@ -195,6 +205,131 @@ describe("loadPageView", () => {
       data: { page: { ...PAGE, space_id: "a/b" }, space: null, folders: null },
     });
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("loadPageHistoryView", () => {
+  it("shows the page, its revisions and its space", async () => {
+    const { client } = setup({
+      "/api/v1/pages/p1": [json(200, PAGE)],
+      "/api/v1/pages/p1/revisions": [json(200, { revisions: [REVISION_SUMMARY] })],
+      "/api/v1/spaces/s1": [json(200, SPACE)],
+    });
+    expect(await loadPageHistoryView(client, "p1")).toEqual({
+      kind: "ready",
+      data: { page: PAGE, space: SPACE, revisions: [REVISION_SUMMARY] },
+    });
+  });
+
+  it("is not found without loading the space when the page is 404", async () => {
+    const { client, calls } = setup({
+      "/api/v1/pages/p1": [apiError(404, "ページが見つかりません")],
+      "/api/v1/pages/p1/revisions": [apiError(404, "ページが見つかりません")],
+    });
+    expect(await loadPageHistoryView(client, "p1")).toEqual({ kind: "notFound" });
+    expect(calls("/api/v1/spaces/s1")).toBe(0);
+  });
+
+  it("is an error with the API message when the revisions are 500", async () => {
+    const { client } = setup({
+      "/api/v1/pages/p1": [json(200, PAGE)],
+      "/api/v1/pages/p1/revisions": [apiError(500, "サーバーでエラーが発生しました")],
+    });
+    expect(await loadPageHistoryView(client, "p1")).toEqual({ kind: "error", message: "サーバーでエラーが発生しました" });
+  });
+
+  it.each([404, 500])("shows the history without the space when the space is %i", async (code) => {
+    const { client } = setup({
+      "/api/v1/pages/p1": [json(200, PAGE)],
+      "/api/v1/pages/p1/revisions": [json(200, { revisions: [] })],
+      "/api/v1/spaces/s1": [apiError(code, "失敗")],
+    });
+    expect(await loadPageHistoryView(client, "p1")).toEqual({
+      kind: "ready",
+      data: { page: PAGE, space: null, revisions: [] },
+    });
+  });
+
+  it("moves to the login page when the revisions stay 401 after the refresh", async () => {
+    const { client, redirectToLogin } = setup({
+      "/api/v1/pages/p1": [json(200, PAGE)],
+      "/api/v1/pages/p1/revisions": [unauthorized, unauthorized],
+      "/auth/refresh": [() => new Response(null, { status: 401 })],
+    });
+    expect(await loadPageHistoryView(client, "p1")).toEqual({ kind: "redirecting" });
+    expect(redirectToLogin).toHaveBeenCalledTimes(1);
+  });
+
+  it("moves to the login page when the space stays 401 after the refresh", async () => {
+    const { client, redirectToLogin } = setup({
+      "/api/v1/pages/p1": [json(200, PAGE)],
+      "/api/v1/pages/p1/revisions": [json(200, { revisions: [] })],
+      "/api/v1/spaces/s1": [unauthorized, unauthorized],
+    });
+    expect(await loadPageHistoryView(client, "p1")).toEqual({ kind: "redirecting" });
+    expect(redirectToLogin).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not call the API for an invalid ID", async () => {
+    const { client, fetch } = setup({});
+    expect(await loadPageHistoryView(client, "../users")).toEqual({ kind: "notFound" });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("loadPageRevisionView", () => {
+  it("shows the revision with the current page", async () => {
+    const { client } = setup({
+      "/api/v1/pages/p1/revisions/1": [json(200, REVISION)],
+      "/api/v1/pages/p1": [json(200, PAGE)],
+    });
+    expect(await loadPageRevisionView(client, "p1", 1)).toEqual({
+      kind: "ready",
+      data: { page: PAGE, revision: REVISION },
+    });
+  });
+
+  it("is not found when the revision is 404", async () => {
+    const { client } = setup({
+      "/api/v1/pages/p1/revisions/1": [apiError(404, "この版は見つかりません")],
+      "/api/v1/pages/p1": [json(200, PAGE)],
+    });
+    expect(await loadPageRevisionView(client, "p1", 1)).toEqual({ kind: "notFound" });
+  });
+
+  it("is not found when the page is 404", async () => {
+    const { client } = setup({
+      "/api/v1/pages/p1/revisions/1": [apiError(404, "ページが見つかりません")],
+      "/api/v1/pages/p1": [apiError(404, "ページが見つかりません")],
+    });
+    expect(await loadPageRevisionView(client, "p1", 1)).toEqual({ kind: "notFound" });
+  });
+
+  it("is an error with the API message when the page is 500", async () => {
+    const { client } = setup({
+      "/api/v1/pages/p1/revisions/1": [json(200, REVISION)],
+      "/api/v1/pages/p1": [apiError(500, "サーバーでエラーが発生しました")],
+    });
+    expect(await loadPageRevisionView(client, "p1", 1)).toEqual({
+      kind: "error",
+      message: "サーバーでエラーが発生しました",
+    });
+  });
+
+  it("moves to the login page when the revision stays 401 after the refresh", async () => {
+    const { client, redirectToLogin } = setup({
+      "/api/v1/pages/p1/revisions/1": [unauthorized, unauthorized],
+      "/api/v1/pages/p1": [json(200, PAGE)],
+      "/auth/refresh": [() => new Response(null, { status: 401 })],
+    });
+    expect(await loadPageRevisionView(client, "p1", 1)).toEqual({ kind: "redirecting" });
+    expect(redirectToLogin).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not call the API for an invalid ID", async () => {
+    const { client, fetch } = setup({});
+    expect(await loadPageRevisionView(client, "../users", 1)).toEqual({ kind: "notFound" });
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
 

@@ -125,8 +125,29 @@ export const pages = sqliteTable(
   ],
 );
 
+// Earlier versions of pages, kept in full. The newest PAGE_REVISION_LIMIT revisions are kept per page.
+export const pageRevisions = sqliteTable(
+  "page_revisions",
+  {
+    id: text("id").primaryKey(),
+    // Deleted with the page: deleting a page cannot be undone yet.
+    pageId: text("page_id")
+      .notNull()
+      .references(() => pages.id, { onDelete: "cascade" }),
+    // pages.version at the time this was the content.
+    version: integer("version").notNull(),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    // pages.updated_by and pages.updated_at of that version.
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [uniqueIndex("page_revisions_page_id_version_unique").on(t.pageId, t.version)],
+);
+
 export type UserRow = typeof users.$inferSelect;
 export type SessionRow = typeof sessions.$inferSelect;
 export type SpaceRow = typeof spaces.$inferSelect;
 export type FolderRow = typeof folders.$inferSelect;
 export type PageRow = typeof pages.$inferSelect;
+export type PageRevisionRow = typeof pageRevisions.$inferSelect;

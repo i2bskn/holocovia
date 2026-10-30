@@ -36,6 +36,7 @@ export function PageView({ client, id, origin }: { client: ApiClient; id: string
       <h1>{page.title}</h1>
       <p className="page-meta">
         更新: <time dateTime={new Date(page.updated_at).toISOString()}>{formatDateTime(page.updated_at)}</time>
+        {isValidId(page.id) && <Link to={`/pages/${page.id}/history`} className="page-history-link">履歴</Link>}
       </p>
       <Markdown body={page.body} origin={origin} />
     </main>

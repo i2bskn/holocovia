@@ -202,6 +202,38 @@ export type UpdatePageInput = {
   folderId?: string | null;
 };
 
+// An earlier version of a page, without its body.
+export type PageRevisionSummary = {
+  // pages.version when this was the content.
+  version: number;
+  title: string;
+  // The user who saved this version. null once the user is deleted.
+  created_by: string | null;
+  // UNIX time in milliseconds when this version was saved.
+  created_at: number;
+};
+
+// PageRevisionSummary with the page id and the body. Written out flat like Page.
+export type PageRevision = {
+  page_id: string;
+  version: number;
+  title: string;
+  created_by: string | null;
+  created_at: number;
+  // Markdown.
+  body: string;
+};
+
+export type PageRevisionList = {
+  // Newest first. Only the newest 20 earlier versions are kept; the current content is the page itself.
+  revisions: PageRevisionSummary[];
+};
+
+export type RestorePageRevisionRequest = {
+  // The current version of the page. A different current version is a conflict.
+  version: number;
+};
+
 // A page found by search, without its body. Written out flat like Page.
 export type SearchHit = {
   id: string;
