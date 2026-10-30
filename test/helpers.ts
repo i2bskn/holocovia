@@ -1,7 +1,7 @@
 import { createExecutionContext } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { hashPassword } from "../src/auth/password";
-import { createDb } from "../src/db/client";
+import { createDb, type Db } from "../src/db/client";
 import { folders, pages, users, type FolderRow, type PageRow, type UserRow } from "../src/db/schema";
 import type { Bindings } from "../src/env";
 import { insertPersonalSpaceStatement } from "../src/spaces/queries";
@@ -255,4 +255,49 @@ export async function insertFolder(params: {
 export async function countFolders(): Promise<number> {
   const row = await env.DB.prepare("SELECT COUNT(*) AS count FROM folders").first<{ count: number }>();
   return row?.count ?? 0;
+}
+
+// A Db whose D1 binding runs before() once, right before the first statement matching pattern runs (alone
+// or in a batch), as if another request changed the data between the checks of a service and its write.
+export function dbChangingBefore(pattern: RegExp, before: () => Promise<unknown>): Db {
+  const real = env.DB;
+  const wrapped = new WeakMap<object, D1PreparedStatement>();
+  let done = false;
+  async function runBefore() {
+    if (done) return;
+    done = true;
+    await before();
+  }
+  const d1 = new Proxy(real, {
+    get(target, prop) {
+      if (prop === "prepare") {
+        return (query: string) => {
+          const statement = target.prepare(query);
+          if (!pattern.test(query)) return statement;
+          return {
+            bind: (...values: unknown[]) => {
+              const bound = statement.bind(...values);
+              const wrapper = {
+                all: async () => (await runBefore(), bound.all()),
+                raw: async () => (await runBefore(), bound.raw()),
+                run: async () => (await runBefore(), bound.run()),
+                first: async () => (await runBefore(), bound.first()),
+              };
+              wrapped.set(wrapper, bound);
+              return wrapper;
+            },
+          };
+        };
+      }
+      if (prop === "batch") {
+        return async (statements: object[]) => {
+          if (statements.some((statement) => wrapped.has(statement))) await runBefore();
+          return target.batch(statements.map((statement) => wrapped.get(statement) ?? (statement as D1PreparedStatement)));
+        };
+      }
+      const value: unknown = Reflect.get(target, prop, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  return createDb(d1);
 }

@@ -1680,6 +1680,14 @@ describe("revoking sessions", () => {
     await expectRevoked(access_token, member.id);
   });
 
+  it("revokes MCP grants when an admin deletes the user", async () => {
+    const { access_token } = await authorizeClient(memberCookies);
+    expect((await oauthApi(ORIGIN).listUserGrants(member.id)).items).toHaveLength(1);
+    const res = await send(`/api/v1/users/${member.id}`, { method: "DELETE", cookies: adminCookies });
+    expect(res.status).toBe(204);
+    await expectRevoked(access_token, member.id);
+  });
+
   it("keeps MCP grants when the web session logs out", async () => {
     const { access_token } = await authorizeClient(memberCookies);
     expect((await send("/auth/logout", { method: "POST", cookies: memberCookies })).status).toBe(200);

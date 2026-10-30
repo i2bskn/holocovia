@@ -146,6 +146,11 @@ describe("admin user API", () => {
     );
   });
 
+  it("tells the auth mode with the list", async () => {
+    const res = await send("/api/v1/users", { cookies: adminCookies });
+    expect(((await res.json()) as { auth_mode: string }).auth_mode).toBe("password");
+  });
+
   it("returns 403 to members", async () => {
     const res = await send("/api/v1/users", { cookies: memberCookies });
     expect(res.status).toBe(403);

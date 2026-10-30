@@ -173,6 +173,15 @@ describe("AppType", () => {
     void param;
   });
 
+  it("types the deletion of a user", () => {
+    expectTypeOf<UserList["auth_mode"]>().toEqualTypeOf<"oidc" | "password">();
+    const param: InferRequestType<(typeof client.api.v1.users)[":id"]["$delete"]>["param"] = { id: "u1" };
+    // @ts-expect-error id is required
+    const withoutId: InferRequestType<(typeof client.api.v1.users)[":id"]["$delete"]>["param"] = {};
+    void param;
+    void withoutId;
+  });
+
   it("types the trash", () => {
     expectTypeOf<TrashedPage["deleted_at"]>().toEqualTypeOf<number>();
     expectTypeOf<TrashedPage["deleted_by"]>().toEqualTypeOf<string | null>();

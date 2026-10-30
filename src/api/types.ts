@@ -1,4 +1,5 @@
 import type { Role } from "../auth/validate";
+import type { AuthMode } from "../env";
 
 export type User = {
   id: string;
@@ -13,6 +14,8 @@ export type User = {
 
 export type UserList = {
   users: User[];
+  // The screen hides the operations that exist only in password mode.
+  auth_mode: AuthMode;
 };
 
 export type ApiError = {

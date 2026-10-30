@@ -10,6 +10,7 @@ import type {
   Space,
   TrashedPage,
   User,
+  UserList,
 } from "../../src/api/types";
 import {
   LoginRequiredError,
@@ -268,6 +269,17 @@ export async function loadSearchView(client: ApiClient, query: string): Promise<
     list.kind === "ok" ? list.value.spaces.map((space) => [space.id, spaceDisplayName(space)] as const) : [],
   );
   return { kind: "ready", data: { query: q, hits: result.value.hits, hasMore: result.value.has_more, spaceNames } };
+}
+
+export type UsersData = { users: User[]; authMode: UserList["auth_mode"] };
+
+// Admins only. A 403 (a member opened the URL) is shown with the server's message.
+export async function loadUsersView(client: ApiClient): Promise<Loaded<UsersData>> {
+  const list = await request(() => client.api.v1.users.$get());
+  if (list.kind === "redirecting") return list;
+  // The list itself is never missing; a 404 here is an unexpected response.
+  if (list.kind === "notFound" || list.kind === "error") return { kind: "error", message: list.message };
+  return { kind: "ready", data: { users: list.value.users, authMode: list.value.auth_mode } };
 }
 
 // A list loaded by a part of a screen (the move panels and the attachments panel), not by the screen itself.

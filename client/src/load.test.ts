@@ -8,6 +8,7 @@ import type {
   SearchHit,
   Space,
   TrashedPage,
+  User,
 } from "../../src/api/types";
 import { createApiClient, createApiFetch } from "./api";
 import {
@@ -20,6 +21,7 @@ import {
   loadSearchView,
   loadSpaceView,
   loadTrashView,
+  loadUsersView,
 } from "./load";
 
 const SPACE: Space = { id: "s1", kind: "everyone", name: "開発", created_at: 1, updated_at: 2 };
@@ -621,6 +623,41 @@ describe("loadSearchView", () => {
       "/auth/refresh": [() => new Response(null, { status: 401 })],
     });
     expect(await loadSearchView(client, "手順")).toEqual({ kind: "redirecting" });
+    expect(redirectToLogin).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("loadUsersView", () => {
+  const USER: User = {
+    id: "u1",
+    email: "a@example.com",
+    name: null,
+    role: "admin",
+    created_at: 1,
+    last_login_at: null,
+  };
+
+  it("shows the users and the auth mode", async () => {
+    const { client } = setup({ "/api/v1/users": [json(200, { users: [USER], auth_mode: "oidc" })] });
+    expect(await loadUsersView(client)).toEqual({ kind: "ready", data: { users: [USER], authMode: "oidc" } });
+  });
+
+  it("is an error with the API message on 403", async () => {
+    const { client } = setup({ "/api/v1/users": [apiError(403, "管理者の権限が必要です")] });
+    expect(await loadUsersView(client)).toEqual({ kind: "error", message: "管理者の権限が必要です" });
+  });
+
+  it("is an error on 404", async () => {
+    const { client } = setup({ "/api/v1/users": [apiError(404, "見つかりません")] });
+    expect(await loadUsersView(client)).toEqual({ kind: "error", message: "見つかりません" });
+  });
+
+  it("moves to the login page when the list stays 401 after the refresh", async () => {
+    const { client, redirectToLogin } = setup({
+      "/api/v1/users": [unauthorized, unauthorized],
+      "/auth/refresh": [() => new Response(null, { status: 401 })],
+    });
+    expect(await loadUsersView(client)).toEqual({ kind: "redirecting" });
     expect(redirectToLogin).toHaveBeenCalledTimes(1);
   });
 });

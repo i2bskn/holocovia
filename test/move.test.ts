@@ -3,7 +3,6 @@ import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Folder, FolderList, Page, PageList, PageRevisionList, SearchResult, TrashList } from "../src/api/types";
 import { clock } from "../src/clock";
-import { createDb, type Db } from "../src/db/client";
 import { folders, pages, spaces, type FolderRow, type PageRow, type SpaceRow, type UserRow } from "../src/db/schema";
 import { createFolder, moveFolder } from "../src/folders/service";
 import { createPage, movePage } from "../src/pages/service";
@@ -12,6 +11,7 @@ import {
   countPages,
   createUser,
   db,
+  dbChangingBefore,
   insertFolder,
   insertPage,
   login,
@@ -66,51 +66,6 @@ async function getJson<T>(url: string, cookies: SessionCookies): Promise<T> {
   const res = await send(url, { cookies });
   expect(res.status).toBe(200);
   return (await res.json()) as T;
-}
-
-// A Db whose D1 binding runs before() once, right before the first statement matching pattern runs (alone
-// or in a batch), as if another request changed the data between the checks of a service and its write.
-function dbChangingBefore(pattern: RegExp, before: () => Promise<unknown>): Db {
-  const real = env.DB;
-  const wrapped = new WeakMap<object, D1PreparedStatement>();
-  let done = false;
-  async function runBefore() {
-    if (done) return;
-    done = true;
-    await before();
-  }
-  const d1 = new Proxy(real, {
-    get(target, prop) {
-      if (prop === "prepare") {
-        return (query: string) => {
-          const statement = target.prepare(query);
-          if (!pattern.test(query)) return statement;
-          return {
-            bind: (...values: unknown[]) => {
-              const bound = statement.bind(...values);
-              const wrapper = {
-                all: async () => (await runBefore(), bound.all()),
-                raw: async () => (await runBefore(), bound.raw()),
-                run: async () => (await runBefore(), bound.run()),
-                first: async () => (await runBefore(), bound.first()),
-              };
-              wrapped.set(wrapper, bound);
-              return wrapper;
-            },
-          };
-        };
-      }
-      if (prop === "batch") {
-        return async (statements: object[]) => {
-          if (statements.some((statement) => wrapped.has(statement))) await runBefore();
-          return target.batch(statements.map((statement) => wrapped.get(statement) ?? (statement as D1PreparedStatement)));
-        };
-      }
-      const value: unknown = Reflect.get(target, prop, target);
-      return typeof value === "function" ? value.bind(target) : value;
-    },
-  });
-  return createDb(d1);
 }
 
 const REST = { requireVisibilityAck: false, acknowledged: false };

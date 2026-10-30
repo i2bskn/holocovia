@@ -127,3 +127,49 @@ async function tryResolveOidcUser(
   const user = await findUserById(db, id);
   return user ? { ok: true, user } : "retry";
 }
+
+export type DeleteUserResult =
+  | { ok: true; attachmentIds: string[] }
+  | { ok: false; error: "not_found" | "last_admin" };
+
+// Deletes the user with their personal space and everything in it: pages including the trash, folders,
+// revisions and attachment rows. Content in other spaces stays; its created_by and updated_by become NULL
+// (ON DELETE SET NULL). Returns the IDs of the deleted attachments, whose objects in R2 the caller deletes.
+export async function deleteUser(db: Db, id: string): Promise<DeleteUserResult> {
+  const target = await findUserById(db, id);
+  if (!target) return { ok: false, error: "not_found" };
+  if (target.role === "admin") {
+    const row = await db.select({ count: sql<number>`COUNT(*)` }).from(users).where(eq(users.role, "admin")).get();
+    if ((row?.count ?? 0) <= 1) return { ok: false, error: "last_admin" };
+  }
+
+  // Every statement carries the same guard, so that nothing is deleted if the user is gone or is the last
+  // admin when the batch runs; the check above is only a fast path. The batch is one transaction.
+  const guard = `EXISTS (SELECT 1 FROM users WHERE id = ?1
+    AND (role = 'member' OR (SELECT COUNT(*) FROM users WHERE role = 'admin') > 1))`;
+  const personalSpaces = `SELECT id FROM spaces WHERE owner_user_id = ?1 AND kind = 'personal'`;
+  const d1 = db.$client;
+  // Children first: attachments (their IDs are decided here, in the same transaction, so that a page moved
+  // out of the space beforehand keeps its object), pages with their revisions by ON DELETE CASCADE, folders
+  // in one statement (parent_id is checked at its end), the space, the sessions, then the user.
+  const results = await d1.batch([
+    d1
+      .prepare(
+        `DELETE FROM attachments WHERE page_id IN (SELECT id FROM pages WHERE space_id IN (${personalSpaces}))
+        AND ${guard} RETURNING id`,
+      )
+      .bind(id),
+    d1.prepare(`DELETE FROM pages WHERE space_id IN (${personalSpaces}) AND ${guard}`).bind(id),
+    d1.prepare(`DELETE FROM folders WHERE space_id IN (${personalSpaces}) AND ${guard}`).bind(id),
+    d1.prepare(`DELETE FROM spaces WHERE owner_user_id = ?1 AND kind = 'personal' AND ${guard}`).bind(id),
+    d1.prepare(`DELETE FROM sessions WHERE user_id = ?1 AND ${guard}`).bind(id),
+    d1.prepare(`DELETE FROM users WHERE id = ?1 AND ${guard} RETURNING id`).bind(id),
+  ]);
+
+  // meta.changes counts cascaded rows too, so success is decided by the returned row.
+  if ((results[5]?.results.length ?? 0) === 0) {
+    return (await findUserById(db, id)) ? { ok: false, error: "last_admin" } : { ok: false, error: "not_found" };
+  }
+  const attachmentIds = ((results[0]?.results ?? []) as { id: string }[]).map((row) => row.id);
+  return { ok: true, attachmentIds };
+}

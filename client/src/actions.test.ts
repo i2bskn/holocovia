@@ -1,18 +1,23 @@
 import { describe, expect, it, vi } from "vitest";
-import type { Attachment, Page, Space } from "../../src/api/types";
+import type { Attachment, Page, Space, User } from "../../src/api/types";
 import {
+  changeUserRole,
   createFolder,
   createPage,
   createSpace,
+  createUser,
   deleteAttachment,
   deleteFolder,
   deleteSpace,
+  deleteUser,
   moveFolder,
   movePage,
   purgeTrashedPage,
   renameSpace,
+  resetUserPassword,
   restoreRevision,
   restoreTrashedPage,
+  revokeUserSessions,
   trashPage,
   updateFolder,
   updatePage,
@@ -726,5 +731,138 @@ describe("deleteAttachment", () => {
     const { client, redirectToLogin } = setup(apiError(401, "ログインが必要です"), 401, url);
     expect(await deleteAttachment(client, "a1")).toEqual({ kind: "redirecting" });
     expect(redirectToLogin).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("createUser", () => {
+  const url = "/api/v1/users";
+  const input = { email: "new@example.com", name: null, password: "correct horse battery", role: "member" } as const;
+  const USER: User = {
+    id: "u2",
+    email: "new@example.com",
+    name: null,
+    role: "member",
+    created_at: 1,
+    last_login_at: null,
+  };
+
+  it("sends the input and is ok with the user on 201", async () => {
+    const { client, fetch } = setup(() => Response.json(USER, { status: 201 }), 401, url);
+    expect(await createUser(client, input)).toEqual({ kind: "ok", user: USER });
+    const init = fetch.mock.calls[0]?.[1];
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(String(init?.body))).toEqual(input);
+  });
+
+  it("is an error when the created user is not JSON", async () => {
+    const { client } = setup(() => new Response("created", { status: 201 }), 401, url);
+    expect(await createUser(client, input)).toEqual({
+      kind: "error",
+      message: "サーバーから予期しない応答がありました（HTTP 201）",
+    });
+  });
+
+  it.each([
+    [400, "パスワードは 12 文字以上 256 文字以下にしてください"],
+    [404, "見つかりません"],
+    [409, "このメールアドレスはすでに使われています"],
+  ])("is an error with the API message on %i", async (code, message) => {
+    const { client } = setup(apiError(code, message), 401, url);
+    expect(await createUser(client, input)).toEqual({ kind: "error", message });
+  });
+
+  it("is an error with a fixed message when the error is not JSON", async () => {
+    const { client } = setup(() => new Response("Bad Gateway", { status: 502 }), 401, url);
+    expect(await createUser(client, input)).toEqual({
+      kind: "error",
+      message: "サーバーから予期しない応答がありました（HTTP 502）",
+    });
+  });
+
+  it("is unknown when fetch rejects", async () => {
+    const { client } = setup(() => Promise.reject(new TypeError("Failed to fetch")), 401, url);
+    expect(await createUser(client, input)).toEqual({ kind: "unknown" });
+  });
+
+  it("is redirecting when login is required", async () => {
+    const { client } = setup(apiError(401, "ログインしてください"), 401, url);
+    expect(await createUser(client, input)).toEqual({ kind: "redirecting" });
+  });
+});
+
+describe.each([
+  {
+    name: "changeUserRole",
+    url: "/api/v1/users/u1",
+    method: "PATCH",
+    body: { role: "member" },
+    call: (client: Parameters<typeof deleteUser>[0], id: string) => changeUserRole(client, id, "member"),
+    okStatus: 200,
+  },
+  {
+    name: "resetUserPassword",
+    url: "/api/v1/users/u1/password",
+    method: "POST",
+    body: { password: "a brand new password" },
+    call: (client: Parameters<typeof deleteUser>[0], id: string) => resetUserPassword(client, id, "a brand new password"),
+    okStatus: 204,
+  },
+  {
+    name: "revokeUserSessions",
+    url: "/api/v1/users/u1/revoke-sessions",
+    method: "POST",
+    body: undefined,
+    call: (client: Parameters<typeof deleteUser>[0], id: string) => revokeUserSessions(client, id),
+    okStatus: 204,
+  },
+  {
+    name: "deleteUser",
+    url: "/api/v1/users/u1",
+    method: "DELETE",
+    body: undefined,
+    call: (client: Parameters<typeof deleteUser>[0], id: string) => deleteUser(client, id),
+    okStatus: 204,
+  },
+])("$name", ({ url, method, body, call, okStatus }) => {
+  it("sends the request and is ok", async () => {
+    const { client, fetch } = setup(
+      () => (okStatus === 204 ? new Response(null, { status: 204 }) : Response.json({})),
+      401,
+      url,
+    );
+    expect(await call(client, "u1")).toEqual({ kind: "ok" });
+    const init = fetch.mock.calls[0]?.[1];
+    expect(init?.method).toBe(method);
+    if (body !== undefined) expect(JSON.parse(String(init?.body))).toEqual(body);
+  });
+
+  it("is not found on 404", async () => {
+    const { client } = setup(apiError(404, "ユーザーが見つかりません"), 401, url);
+    expect(await call(client, "u1")).toEqual({ kind: "notFound" });
+  });
+
+  it.each([
+    [400, "自分自身は削除できません"],
+    [403, "管理者の権限が必要です"],
+    [409, "最後の管理者は削除できません"],
+  ])("is an error with the API message on %i", async (code, message) => {
+    const { client } = setup(apiError(code, message), 401, url);
+    expect(await call(client, "u1")).toEqual({ kind: "error", message });
+  });
+
+  it("is unknown when fetch rejects", async () => {
+    const { client } = setup(() => Promise.reject(new TypeError("Failed to fetch")), 401, url);
+    expect(await call(client, "u1")).toEqual({ kind: "unknown" });
+  });
+
+  it("is redirecting when login is required", async () => {
+    const { client } = setup(apiError(401, "ログインしてください"), 401, url);
+    expect(await call(client, "u1")).toEqual({ kind: "redirecting" });
+  });
+
+  it("is an error without sending for an invalid ID", async () => {
+    const { client, fetch } = setup(() => new Response(null, { status: 204 }), 401, url);
+    expect(await call(client, "../spaces/s1")).toEqual({ kind: "error", message: "ユーザーが見つかりません" });
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

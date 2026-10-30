@@ -17,6 +17,7 @@ import { PageView } from "./views/PageView";
 import { SearchView } from "./views/SearchView";
 import { SpaceView } from "./views/SpaceView";
 import { TrashView } from "./views/TrashView";
+import { UsersView } from "./views/UsersView";
 
 // One client for every screen: the shared refresh and the single move to the login page are per instance.
 const client = createApiClient(
@@ -88,6 +89,8 @@ function Screen({ route, user }: { route: Route; user: User }) {
       return <PageEditView client={client} id={route.id} userId={user.id} origin={location.origin} />;
     case "search":
       return <SearchView client={client} query={route.query} />;
+    case "users":
+      return <UsersView client={client} currentUserId={user.id} />;
     case "notFound":
       return <RouteNotFound />;
   }
@@ -129,6 +132,8 @@ function Header({ user, route }: { user: User; route: Route }) {
         <button type="submit">検索</button>
       </form>
       <div className="account">
+        {/* Shown only to admins; the server checks it again. */}
+        {user.role === "admin" && <Link to="/users">ユーザー管理</Link>}
         <span className="user">
           {user.name ?? user.email}
           {user.role === "admin" && <span className="role">管理者</span>}

@@ -81,6 +81,13 @@ describe("matchRoute", () => {
     expect(matchRoute("/search?q=a&q=b")).toEqual({ name: "search", query: "a" });
   });
 
+  it("matches the users screen exactly", () => {
+    expect(matchRoute("/users")).toEqual({ name: "users" });
+    expect(matchRoute("/users?a=1")).toEqual({ name: "users" });
+    expect(matchRoute("/users/")).toEqual({ name: "notFound" });
+    expect(matchRoute("/users/abc")).toEqual({ name: "notFound" });
+  });
+
   it("ignores the search part on other screens", () => {
     expect(matchRoute("/spaces/x?a=1")).toEqual({ name: "space", id: "x" });
     expect(matchRoute("/?q=a")).toEqual({ name: "home" });

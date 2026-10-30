@@ -635,6 +635,41 @@ a {
   margin-left: auto;
 }
 
+.users {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.users > li {
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #eee;
+}
+
+.user-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 0.75rem;
+}
+
+.user-name {
+  min-width: 0;
+}
+
+.user-detail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 0.75rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.8rem;
+  color: #666;
+}
+
+.users .folder-actions {
+  margin-bottom: 0.5rem;
+}
+
 @media (max-width: 480px) {
   .attachments-buttons {
     margin-left: 0;

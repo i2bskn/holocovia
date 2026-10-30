@@ -10,16 +10,19 @@ import type {
 import { clock } from "../clock";
 import { users } from "../db/schema";
 import type { AppEnv } from "../env";
-import { apiError, requireAdmin, requireMode, requireUser } from "../auth/middleware";
+import { attachmentKey } from "../attachments/service";
+import { apiError, describeError, requireAdmin, requireMode, requireUser } from "../auth/middleware";
 import { hashPassword } from "../auth/password";
 import { revokeUserSessionsQuery } from "../auth/sessions";
-import { findUserById, isUniqueViolation } from "../auth/users";
+import { deleteUser, findUserById, isUniqueViolation } from "../auth/users";
 import { isRole, isValidPassword, normalizeEmail, normalizeName } from "../auth/validate";
 import { revokeAllGrants } from "../mcp/grants";
 import { insertPersonalSpaceStatement } from "../spaces/queries";
 import { jsonBody, toApiUser } from "./api";
 
 const userNotFound = "ユーザーが見つかりません";
+// R2 deletes up to 1,000 keys per call.
+const R2_DELETE_BATCH = 1000;
 
 const createUserBody = jsonBody<CreateUserRequest, CreateUserInput>((body, c) => {
   const email = normalizeEmail(body.email);
@@ -48,7 +51,7 @@ const updateUserBody = jsonBody<UpdateUserRequest, UpdateUserRequest>((body, c) 
 const usersApi = new Hono<AppEnv>()
   .get("/", requireUser, requireAdmin, async (c) => {
     const rows = await c.get("db").select().from(users).orderBy(asc(users.createdAt), asc(users.id)).all();
-    const body: UserList = { users: rows.map(toApiUser) };
+    const body: UserList = { users: rows.map(toApiUser), auth_mode: c.get("config").authMode };
     return c.json(body, 200);
   })
   .post("/", requireMode("password"), requireUser, requireAdmin, createUserBody, async (c) => {
@@ -141,6 +144,34 @@ const usersApi = new Hono<AppEnv>()
     const updated = await findUserById(db, id);
     if (!updated) return apiError(c, 404, "not_found", userNotFound);
     return c.json(toApiUser(updated), 200);
+  })
+  .delete("/:id", requireUser, requireAdmin, async (c) => {
+    const id = c.req.param("id");
+    // An admin cannot lock themselves out; another admin can delete them.
+    if (id === c.get("user").id) return apiError(c, 400, "cannot_delete_self", "自分自身は削除できません");
+    const result = await deleteUser(c.get("db"), id);
+    if (!result.ok) {
+      if (result.error === "not_found") return apiError(c, 404, "not_found", userNotFound);
+      return apiError(c, 409, "last_admin", "最後の管理者は削除できません");
+    }
+
+    // After D1, best effort. A grant left by a KV failure cannot be used: the MCP handler rejects a user
+    // who no longer exists.
+    try {
+      if (c.env.OAUTH_PROVIDER) await revokeAllGrants(c.env.OAUTH_PROVIDER, id);
+    } catch (error) {
+      console.error("grant revocation after user delete failed", { userId: id, ...describeError(error) });
+    }
+    // Objects left by an R2 failure are deleted by the scheduled job (src/attachments/sweep.ts).
+    try {
+      const keys = result.attachmentIds.map(attachmentKey);
+      for (let i = 0; i < keys.length; i += R2_DELETE_BATCH) {
+        await c.env.ATTACHMENTS.delete(keys.slice(i, i + R2_DELETE_BATCH));
+      }
+    } catch (error) {
+      console.error("attachment objects delete after user delete failed", { userId: id, ...describeError(error) });
+    }
+    return c.body(null, 204);
   });
 
 export default usersApi;
