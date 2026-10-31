@@ -6,7 +6,9 @@ export function LoggedOutPage() {
     <Layout title="ログアウト">
       <h1>ログアウトしました</h1>
       <p>
-        <a href="/auth/login">ログイン</a>
+        <a href="/auth/login" class="button">
+          ログイン
+        </a>
       </p>
     </Layout>
   );

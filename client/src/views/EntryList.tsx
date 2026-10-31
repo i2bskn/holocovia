@@ -1,5 +1,6 @@
 import type { Folder, PageSummary } from "../../../src/api/types";
 import { formatDateTime } from "../format";
+import { ChevronIcon, FolderIcon, PageIcon } from "../icons";
 import { Link } from "../Link";
 import { isValidId } from "../router";
 
@@ -13,42 +14,41 @@ export function EntryList({
   pages: PageSummary[];
   emptyMessage: string;
 }) {
-  if (folders.length === 0 && pages.length === 0) return <p>{emptyMessage}</p>;
+  if (folders.length === 0 && pages.length === 0) return <p className="empty">{emptyMessage}</p>;
   return (
-    <ul className="pages">
+    <ul className="entries">
       {folders.map((folder) => (
-        <li key={folder.id}>
-          <span className="folder-name">
-            <FolderIcon />
-            {isValidId(folder.id) ? <Link to={`/folders/${folder.id}`}>{folder.name}</Link> : folder.name}
+        <li key={folder.id} className="entry entry-folder">
+          <FolderIcon />
+          <span className="entry-title">
+            {isValidId(folder.id) ? (
+              <Link to={`/folders/${folder.id}`} className="stretched">
+                {folder.name}
+              </Link>
+            ) : (
+              folder.name
+            )}
           </span>
+          {isValidId(folder.id) && <ChevronIcon />}
         </li>
       ))}
       {pages.map((page) => (
-        <li key={page.id}>
-          <span className="page-title">
-            {isValidId(page.id) ? <Link to={`/pages/${page.id}`}>{page.title}</Link> : page.title}
+        <li key={page.id} className="entry">
+          <PageIcon />
+          <span className="entry-title">
+            {isValidId(page.id) ? (
+              <Link to={`/pages/${page.id}`} className="stretched">
+                {page.title}
+              </Link>
+            ) : (
+              page.title
+            )}
           </span>
-          <time className="page-updated" dateTime={new Date(page.updated_at).toISOString()}>
+          <time className="entry-meta" dateTime={new Date(page.updated_at).toISOString()}>
             {formatDateTime(page.updated_at)}
           </time>
         </li>
       ))}
     </ul>
-  );
-}
-
-// Decorative: the link text is the folder name, so screen readers skip the icon.
-function FolderIcon() {
-  return (
-    <svg className="folder-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-      <path
-        d="M1.5 3.5a1 1 0 0 1 1-1h3.6l1.5 1.5h5.9a1 1 0 0 1 1 1v7.5a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1z"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinejoin="round"
-      />
-    </svg>
   );
 }

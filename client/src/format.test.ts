@@ -5,6 +5,7 @@ import {
   formatPurgeRemaining,
   formatSnippet,
   spaceDisplayName,
+  splitByQuery,
   widerVisibilityWarning,
 } from "./format";
 
@@ -27,12 +28,48 @@ describe("formatDateTime", () => {
 
 describe("formatSnippet", () => {
   it("joins lines and collapses whitespace", () => {
-    expect(formatSnippet("# 手順\n\n1. 設計\t方針  を  決める\r\n")).toBe("…# 手順 1. 設計 方針 を 決める…");
+    expect(formatSnippet("手順\n\n1. 設計\t方針  を  決める\r\n")).toBe("…手順 1. 設計 方針 を 決める…");
+  });
+
+  it("drops the marks of headings, lists, quotes, emphasis and code", () => {
+    expect(formatSnippet("# 手順\n- **領収書**を撮る\n> 注意\n* `expense list`")).toBe(
+      "…手順 領収書を撮る 注意 expense list…",
+    );
+  });
+
+  it("keeps the text of links and drops their URLs", () => {
+    expect(formatSnippet("[経費申請](/pages/abc) と ![図](/api/v1/attachments/x)")).toBe("…経費申請 と 図…");
+  });
+
+  it("drops the URL of a link cut at either end", () => {
+    expect(formatSnippet("-4726-81f0) — 入社した人向け\n- [経費申請の手順](/pages/cb871ec5-be7e")).toBe(
+      "…— 入社した人向け 経費申請の手順…",
+    );
+  });
+
+  it("keeps numbers, dashes and parentheses in ordinary text", () => {
+    expect(formatSnippet("1. 設計 (案) を 2026-10 に決める")).toBe("…1. 設計 (案) を 2026-10 に決める…");
   });
 
   it("adds … on both sides", () => {
     expect(formatSnippet("  abc  ")).toBe("…abc…");
     expect(formatSnippet("abc")).toBe("…abc…");
+  });
+});
+
+describe("splitByQuery", () => {
+  it("marks every match, ignoring case", () => {
+    expect(splitByQuery("API と api の申請", "Api")).toEqual([
+      { text: "API", match: true },
+      { text: " と ", match: false },
+      { text: "api", match: true },
+      { text: " の申請", match: false },
+    ]);
+  });
+
+  it("returns the whole text when nothing matches or the query is empty", () => {
+    expect(splitByQuery("申請", "経費")).toEqual([{ text: "申請", match: false }]);
+    expect(splitByQuery("申請", " ")).toEqual([{ text: "申請", match: false }]);
   });
 });
 

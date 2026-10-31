@@ -1,11 +1,13 @@
-import type { FormEvent } from "react";
+import { type FormEvent, useEffect, useRef } from "react";
 import type { User } from "../../src/api/types";
 import { createApiClient, createApiFetch, unexpectedResponseMessage } from "./api";
+import { BrandLogo } from "./brand";
+import { LogoutIcon, SearchIcon, UsersIcon } from "./icons";
 import { Link } from "./Link";
 import { loadMe, useView } from "./load";
 import { type Route, matchRoute, navigate, usePath } from "./router";
 import { markLeaving } from "./unload";
-import { LoadError, NotFound, useDocumentTitle } from "./views/common";
+import { LoadError, Menu, NotFound, useDocumentTitle } from "./views/common";
 import { ErrorBoundary } from "./views/ErrorBoundary";
 import { FolderView } from "./views/FolderView";
 import { HomeView } from "./views/HomeView";
@@ -50,7 +52,7 @@ export function App() {
     case "ready":
       return (
         <>
-          <Header user={me.data} route={route} />
+          <Header user={me.data} route={route} path={path} />
           <ErrorBoundary key={path}>
             <Screen route={route} user={me.data} />
           </ErrorBoundary>
@@ -101,46 +103,100 @@ function RouteNotFound() {
   return <NotFound message="ページが見つかりません" />;
 }
 
-function Header({ user, route }: { user: User; route: Route }) {
+function Header({ user, route, path }: { user: User; route: Route; path: string }) {
   // The search screen shows its query; other screens start empty.
   const query = route.name === "search" ? route.query : "";
+  const search = useRef<HTMLInputElement>(null);
+
+  // "/" moves to the search field, unless the user is typing somewhere.
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.isContentEditable || target.closest("input, textarea, select, [contenteditable]"))
+      ) {
+        return;
+      }
+      event.preventDefault();
+      search.current?.focus();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   function onSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const value = new FormData(event.currentTarget).get("q");
     const q = typeof value === "string" ? value.trim() : "";
     if (q === "") return;
+    search.current?.blur();
     navigate(`/search?q=${encodeURIComponent(q)}`);
   }
 
+  const name = user.name ?? user.email;
   return (
     <header className="header">
-      <Link to="/" className="brand">
-        holocovia
-      </Link>
-      {/* action and method are used when JavaScript does not run; /search is served by the SPA. */}
-      <form role="search" className="search-form" action="/search" method="get" onSubmit={onSearch}>
-        <input
-          key={query}
-          type="search"
-          name="q"
-          aria-label="ページを検索"
-          placeholder="ページを検索"
-          maxLength={100}
-          defaultValue={query}
-        />
-        <button type="submit">検索</button>
-      </form>
-      <div className="account">
-        {/* Shown only to admins; the server checks it again. */}
-        {user.role === "admin" && <Link to="/users">ユーザー管理</Link>}
-        <span className="user">
-          {user.name ?? user.email}
-          {user.role === "admin" && <span className="role">管理者</span>}
-        </span>
-        <form method="post" action="/auth/logout">
-          <button type="submit">ログアウト</button>
+      <div className="header-inner">
+        <Link to="/" className="brand">
+          <BrandLogo />
+          <span className="sr-only">holocovia</span>
+        </Link>
+        {/* action and method are used when JavaScript does not run; /search is served by the SPA. */}
+        <form role="search" className="search-form" action="/search" method="get" onSubmit={onSearch}>
+          <SearchIcon />
+          <input
+            ref={search}
+            key={query}
+            type="search"
+            name="q"
+            aria-label="ページを検索"
+            placeholder="ページを検索"
+            maxLength={100}
+            enterKeyHint="search"
+            defaultValue={query}
+          />
+          <kbd className="search-key" aria-hidden="true">
+            /
+          </kbd>
+          <button type="submit" className="search-submit">
+            検索
+          </button>
         </form>
+        {/* Keyed by the path, so that it is closed again on every screen. */}
+        <Menu
+          key={path}
+          className="account-menu"
+          label={`アカウント: ${name}`}
+          summary={
+            <>
+              <span className="avatar" aria-hidden="true">
+                {Array.from(name)[0]?.toUpperCase()}
+              </span>
+              <span className="account-name">{name}</span>
+            </>
+          }
+        >
+          <div className="account-card">
+            <span className="account-card-name">{name}</span>
+            {user.name !== null && <span className="account-card-email">{user.email}</span>}
+            <span className="account-card-role">{user.role === "admin" ? "管理者" : "一般"}</span>
+          </div>
+          {/* Shown only to admins; the server checks it again. */}
+          {user.role === "admin" && (
+            <Link to="/users" className="menu-item">
+              <UsersIcon />
+              ユーザー管理
+            </Link>
+          )}
+          <form method="post" action="/auth/logout">
+            <button type="submit" className="menu-item">
+              <LogoutIcon />
+              ログアウト
+            </button>
+          </form>
+        </Menu>
       </div>
     </header>
   );

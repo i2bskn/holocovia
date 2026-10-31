@@ -2,6 +2,7 @@ import { type ChangeEvent, useEffect, useId, useRef, useState } from "react";
 import type { Attachment } from "../../../src/api/types";
 import { deleteAttachment, uploadAttachment } from "../actions";
 import { formatFileSize } from "../format";
+import { PlusIcon } from "../icons";
 import { type ApiClient, type ListResult, loadAttachmentList } from "../load";
 
 // The types the server accepts, so that the file picker offers them first. The server decides the type
@@ -138,17 +139,22 @@ export function AttachmentsPanel({
     <section className="attachments" aria-labelledby={headingId}>
       <h2 id={headingId}>添付ファイル</h2>
       <p className="attachments-note">
-        画像（PNG・JPEG・GIF・WebP）と PDF を 10MB まで添付できます。追加すると本文に挿入されます。
+        画像（PNG・JPEG・GIF・WebP）とPDFを添付できます。1ファイル10MBまでで、追加すると本文に挿入されます。
       </p>
+      {/* The browser's own file button is hidden: its text follows the browser's language, not the page's. */}
       <label className="attachments-upload">
-        ファイルを追加
         <input
           ref={fileInput}
+          className="file-input"
           type="file"
           accept={ACCEPT}
           onChange={(event) => void onFileChange(event)}
           disabled={busy}
         />
+        <span className="button">
+          <PlusIcon />
+          ファイルを追加
+        </span>
       </label>
       {uploading && <p role="status">アップロード中…</p>}
       {redirecting && <p role="status">{REDIRECTING_MESSAGE}</p>}
@@ -200,7 +206,7 @@ export function AttachmentsPanel({
           <p className="attachments-name">{deleting.filename}</p>
           <p>このファイルを削除します。本文から参照している箇所は表示されなくなります。元に戻せません。</p>
           <div className="folder-form-actions">
-            <button type="submit" disabled={busy}>
+            <button type="submit" className="button-danger" disabled={busy}>
               削除
             </button>
             <button type="button" onClick={() => setDeleting(null)} disabled={sendingDelete || redirecting}>

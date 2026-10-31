@@ -1,9 +1,11 @@
 import { type FormEvent, useState } from "react";
 import type { Space } from "../../../src/api/types";
 import { type SpaceActionResult, deleteSpace, renameSpace } from "../actions";
+import { EditIcon, MoreIcon, TrashIcon } from "../icons";
 import { Link } from "../Link";
 import type { ApiClient } from "../load";
 import { navigate } from "../router";
+import { Menu } from "./common";
 
 type Operation = "rename" | "delete";
 
@@ -16,7 +18,7 @@ const UNKNOWN_RESULT_MESSAGE = "サーバーに接続できませんでした。
 
 // The buttons for admins to rename and delete a space other than a personal space. The caller shows them
 // only to admins, for a space with a valid id. One operation is open at a time, independently of
-// FolderActions.
+// FolderActions. The caller puts it in the title row: the menu sits next to the title and the form below it.
 export function SpaceActions({ client, space, onReload }: { client: ApiClient; space: Space; onReload: () => void }) {
   const [open, setOpen] = useState<Operation | null>(null);
   const [sending, setSending] = useState(false);
@@ -84,27 +86,43 @@ export function SpaceActions({ client, space, onReload }: { client: ApiClient; s
 
   return (
     <>
-      <div className="folder-actions">
-        <button type="button" onClick={() => openOperation("rename")} disabled={sending}>
+      <Menu label="スペースの操作" className="more-menu" summary={<MoreIcon />}>
+        <button type="button" className="menu-item" onClick={() => openOperation("rename")} disabled={sending}>
+          <EditIcon />
           {OPERATION_LABELS.rename}
         </button>
-        <button type="button" onClick={() => openOperation("delete")} disabled={sending}>
+        <hr className="menu-separator" />
+        <button
+          type="button"
+          className="menu-item menu-item-danger"
+          onClick={() => openOperation("delete")}
+          disabled={sending}
+        >
+          <TrashIcon />
           {OPERATION_LABELS.delete}
         </button>
-      </div>
+      </Menu>
       {open !== null && (
         <form className="folder-form" aria-label={OPERATION_LABELS[open]} onSubmit={onSubmit}>
           {open === "rename" && (
             <label>
               新しい名前
-              <input type="text" value={name} onChange={(event) => setName(event.target.value)} disabled={sending} />
+              {/* Opened from the menu to type the name: focused with the current name selected. */}
+              <input
+                type="text"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                onFocus={(event) => event.currentTarget.select()}
+                disabled={sending}
+                autoFocus
+              />
             </label>
           )}
           {open === "delete" && (
             <p>このスペースを削除します。ページ（ゴミ箱のページを含む）やフォルダが残っていると削除できません。</p>
           )}
           <div className="folder-form-actions">
-            <button type="submit" disabled={sending}>
+            <button type="submit" className={open === "delete" ? "button-danger" : undefined} disabled={sending}>
               {SUBMIT_LABELS[open]}
             </button>
             <button type="button" onClick={close} disabled={sending}>

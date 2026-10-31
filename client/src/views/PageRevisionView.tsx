@@ -121,7 +121,7 @@ function RestoreRevision({
     <div className="restore-confirm" role="group" aria-label="この版に戻す">
       <p>現在の内容を履歴に残して、この版の内容に戻します。</p>
       <div className="restore-actions">
-        <button type="button" onClick={() => void onRestore()} disabled={sending}>
+        <button type="button" className="button-primary" onClick={() => void onRestore()} disabled={sending}>
           戻す
         </button>
         <button type="button" onClick={() => setState({ kind: "closed" })} disabled={sending}>

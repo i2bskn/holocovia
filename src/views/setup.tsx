@@ -5,7 +5,7 @@ export function SetupPage(props: { email?: string; name?: string; errors?: strin
   return (
     <Layout title="初期設定">
       <h1>初期設定</h1>
-      <p>最初の管理者アカウントを作成します。</p>
+      <p class="lead">最初の管理者アカウントを作成します。</p>
       {props.errors && props.errors.length > 0 ? (
         <ul role="alert">
           {props.errors.map((error) => (
@@ -38,7 +38,9 @@ export function SetupPage(props: { email?: string; name?: string; errors?: strin
             <input type="password" name="password_confirm" autocomplete="new-password" required />
           </label>
         </p>
-        <button type="submit">作成</button>
+        <button type="submit" class="primary">
+          作成
+        </button>
       </form>
     </Layout>
   );

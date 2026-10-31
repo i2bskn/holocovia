@@ -1,9 +1,9 @@
-import { spaceDisplayName } from "../format";
+import { SPACE_KIND_DESCRIPTIONS, spaceDisplayName } from "../format";
 import { childFolders, folderPath } from "../folders";
 import { Link } from "../Link";
 import { type ApiClient, loadFolderView, useView } from "../load";
 import { isValidId } from "../router";
-import { ViewStatus, useDocumentTitle, viewTitle } from "./common";
+import { SpaceKindBadge, ViewStatus, useDocumentTitle, viewTitle } from "./common";
 import { EntryList } from "./EntryList";
 import { FolderActions } from "./FolderActions";
 
@@ -34,8 +34,22 @@ export function FolderView({ client, id }: { client: ApiClient; id: string }) {
           <li aria-current="page">{folder.name}</li>
         </ol>
       </nav>
-      <h1>{folder.name}</h1>
-      <FolderActions client={client} space={space} folders={folders} folder={folder} onReload={reload} />
+      <FolderActions
+        client={client}
+        space={space}
+        folders={folders}
+        folder={folder}
+        heading={
+          <>
+            <h1>{folder.name}</h1>
+            <p className="title-note">
+              <SpaceKindBadge kind={space.kind} />
+              {SPACE_KIND_DESCRIPTIONS[space.kind]}
+            </p>
+          </>
+        }
+        onReload={reload}
+      />
       <EntryList
         folders={childFolders(folders, folder.id)}
         pages={pages.filter((page) => page.folder_id === folder.id)}

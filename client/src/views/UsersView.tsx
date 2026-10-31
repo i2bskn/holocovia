@@ -9,6 +9,7 @@ import {
   revokeUserSessions,
 } from "../actions";
 import { formatDateTime } from "../format";
+import { PlusIcon } from "../icons";
 import { type ApiClient, type UsersData, loadUsersView, useView } from "../load";
 import { ViewStatus, useDocumentTitle, viewTitle } from "./common";
 
@@ -38,7 +39,7 @@ export function UsersView({ client, currentUserId }: { client: ApiClient; curren
     <main className="main">
       <h1>ユーザー管理</h1>
       {notice !== null && (
-        <p className="trash-notice" role="status">
+        <p className="notice" role="status">
           {notice}
         </p>
       )}
@@ -59,6 +60,7 @@ export function UsersView({ client, currentUserId }: { client: ApiClient; curren
             user={user}
             authMode={authMode}
             isCurrentUser={user.id === currentUserId}
+            isLastAdmin={user.role === "admin" && users.filter((other) => other.role === "admin").length === 1}
             onNotice={setNotice}
             onReload={reload}
           />
@@ -114,8 +116,9 @@ function CreateUserForm({ client, onCreated }: { client: ApiClient; onCreated: (
 
   if (!open) {
     return (
-      <div className="folder-actions">
-        <button type="button" onClick={openForm}>
+      <div className="actions">
+        <button type="button" className="button-primary" onClick={openForm}>
+          <PlusIcon />
           ユーザーを追加
         </button>
       </div>
@@ -139,7 +142,7 @@ function CreateUserForm({ client, onCreated }: { client: ApiClient; onCreated: (
         <input type="text" value={name} onChange={(event) => setName(event.target.value)} disabled={sending} />
       </label>
       <label>
-        パスワード（12 文字以上）
+        パスワード（12&nbsp;文字以上）
         <input
           type="password"
           value={password}
@@ -175,6 +178,7 @@ function UserRow({
   user,
   authMode,
   isCurrentUser,
+  isLastAdmin,
   onNotice,
   onReload,
 }: {
@@ -182,6 +186,8 @@ function UserRow({
   user: User;
   authMode: AuthMode;
   isCurrentUser: boolean;
+  // The server refuses to make the last admin a member, so the button is not shown for them.
+  isLastAdmin: boolean;
   onNotice: (notice: string | null) => void;
   onReload: () => void;
 }) {
@@ -195,7 +201,7 @@ function UserRow({
   // Resetting another user's password is for password mode only; the current user changes their own
   // password elsewhere.
   const operations: Operation[] = [
-    "role",
+    ...(isLastAdmin ? [] : (["role"] as const)),
     ...(authMode === "password" && !isCurrentUser ? (["password"] as const) : []),
     ...(isCurrentUser ? [] : (["logout", "delete"] as const)),
   ];
@@ -272,7 +278,7 @@ function UserRow({
     <li>
       <div className="user-head">
         <span className="user-name">
-          {user.name ?? "（名前なし）"}
+          {user.name ?? <span className="user-unnamed">名前未設定</span>}
           {isCurrentUser && "（自分）"}
         </span>
         <span className="space-kind">{ROLE_LABELS[user.role]}</span>
@@ -288,9 +294,16 @@ function UserRow({
           </time>
         )}
       </div>
-      <div className="folder-actions">
+      <div className="actions">
         {operations.map((operation) => (
-          <button key={operation} type="button" onClick={() => openOperation(operation)} disabled={sending}>
+          <button
+            key={operation}
+            type="button"
+            // Deleting cannot be undone: it is set apart from the other operations.
+            className={operation === "delete" ? "button-danger-outline" : undefined}
+            onClick={() => openOperation(operation)}
+            disabled={sending}
+          >
             {operationLabel(operation)}
           </button>
         ))}
@@ -308,7 +321,7 @@ function UserRow({
           {open === "password" && (
             <>
               <label>
-                新しいパスワード（12 文字以上）
+                新しいパスワード（12&nbsp;文字以上）
                 <input
                   type="password"
                   value={password}
@@ -317,10 +330,10 @@ function UserRow({
                   disabled={sending}
                 />
               </label>
-              <p>このユーザーはすべての端末でログアウトし、MCP の接続も切れます。</p>
+              <p>このユーザーはすべての端末でログアウトし、MCP&nbsp;の接続も切れます。</p>
             </>
           )}
-          {open === "logout" && <p>このユーザーをすべての端末でログアウトさせます。MCP の接続も切れます。</p>}
+          {open === "logout" && <p>このユーザーをすべての端末でログアウトさせます。MCP&nbsp;の接続も切れます。</p>}
           {open === "delete" && (
             <>
               <p>
@@ -346,7 +359,11 @@ function UserRow({
             </>
           )}
           <div className="folder-form-actions">
-            <button type="submit" disabled={sending || (open === "delete" && confirmation !== user.email)}>
+            <button
+              type="submit"
+              className={open === "delete" ? "button-danger" : undefined}
+              disabled={sending || (open === "delete" && confirmation !== user.email)}
+            >
               {SUBMIT_LABELS[open]}
             </button>
             <button type="button" onClick={() => setOpen(null)} disabled={sending}>

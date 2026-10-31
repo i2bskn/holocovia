@@ -1,11 +1,13 @@
-import { type FormEvent, useState } from "react";
+import { type FormEvent, type ReactNode, useState } from "react";
 import type { Folder, Space } from "../../../src/api/types";
 import { type FolderActionResult, createFolder, deleteFolder, moveFolder, updateFolder } from "../actions";
 import { descendantIds } from "../folders";
 import { widerVisibilityWarning } from "../format";
+import { EditIcon, MoreIcon, MoveIcon, PlusIcon, TrashIcon } from "../icons";
 import { Link } from "../Link";
 import type { ApiClient } from "../load";
 import { isValidId, navigate } from "../router";
+import { Menu } from "./common";
 import { MoveFolderSelect, MoveSpaceSelect, useMoveDestination } from "./MoveDestination";
 import { folderIdToValue, valueToFolderId } from "./PageEditor";
 
@@ -26,6 +28,7 @@ export function FolderActions({
   space,
   folders,
   folder,
+  heading,
   onReload,
 }: {
   client: ApiClient;
@@ -34,6 +37,9 @@ export function FolderActions({
   // All the folders of the space.
   folders: Folder[];
   folder: Folder | null;
+  // The title of the screen. When given, it is drawn here in a title row, with the menu for the folder next to it
+  // (the folder screen); otherwise the caller draws the title (the space screen).
+  heading?: ReactNode;
   onReload: () => void;
 }) {
   const [open, setOpen] = useState<Operation | null>(null);
@@ -49,7 +55,7 @@ export function FolderActions({
   });
 
   const spaceId = space.id;
-  if (!isValidId(spaceId)) return null;
+  if (!isValidId(spaceId)) return heading === undefined ? null : <div className="title-row">{heading}</div>;
   const folderId = folder !== null && isValidId(folder.id) ? folder.id : null;
   const newPagePath = folderId !== null ? `/spaces/${spaceId}/new?folder=${folderId}` : `/spaces/${spaceId}/new`;
 
@@ -145,37 +151,69 @@ export function FolderActions({
 
   return (
     <>
-      <div className="folder-actions">
-        <Link to={newPagePath}>ページを作成</Link>
+      {heading !== undefined && (
+        <div className="title-row">
+          {heading}
+          {folderId !== null && (
+            <Menu label="フォルダの操作" className="more-menu" summary={<MoreIcon />}>
+              <button type="button" className="menu-item" onClick={() => openOperation("rename")} disabled={sending}>
+                <EditIcon />
+                名前を変更
+              </button>
+              <button type="button" className="menu-item" onClick={() => openOperation("move")} disabled={sending}>
+                <MoveIcon />
+                移動
+              </button>
+              <hr className="menu-separator" />
+              <button
+                type="button"
+                className="menu-item menu-item-danger"
+                onClick={() => openOperation("delete")}
+                disabled={sending}
+              >
+                <TrashIcon />
+                削除
+              </button>
+            </Menu>
+          )}
+        </div>
+      )}
+      <div className="actions">
+        <Link to={newPagePath} className="button button-primary">
+          <PlusIcon />
+          ページを作成
+        </Link>
         <button type="button" onClick={() => openOperation("create")} disabled={sending}>
+          <PlusIcon />
           フォルダを作成
         </button>
-        {folderId !== null && (
-          <>
-            <button type="button" onClick={() => openOperation("rename")} disabled={sending}>
-              名前を変更
-            </button>
-            <button type="button" onClick={() => openOperation("move")} disabled={sending}>
-              移動
-            </button>
-            <button type="button" onClick={() => openOperation("delete")} disabled={sending}>
-              削除
-            </button>
-          </>
-        )}
       </div>
       {open !== null && (
         <form className="folder-form" aria-label={OPERATION_LABELS[open]} onSubmit={onSubmit}>
           {open === "create" && (
             <label>
               フォルダの名前
-              <input type="text" value={name} onChange={(event) => setName(event.target.value)} disabled={sending} />
+              <input
+                type="text"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                disabled={sending}
+                autoFocus
+              />
             </label>
           )}
           {open === "rename" && (
             <label>
               新しい名前
-              <input type="text" value={name} onChange={(event) => setName(event.target.value)} disabled={sending} />
+              {/* Opened from the menu to type the name: focused with the current name selected. */}
+              <input
+                type="text"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                onFocus={(event) => event.currentTarget.select()}
+                disabled={sending}
+                autoFocus
+              />
             </label>
           )}
           {open === "move" && (
@@ -198,7 +236,11 @@ export function FolderActions({
           )}
           {open === "delete" && <p>このフォルダを削除します。中にページやフォルダがあると削除できません。</p>}
           <div className="folder-form-actions">
-            <button type="submit" disabled={sending || (open === "move" && moveBlocked)}>
+            <button
+              type="submit"
+              className={open === "delete" ? "button-danger" : undefined}
+              disabled={sending || (open === "move" && moveBlocked)}
+            >
               {open === "move" && moveWarning !== null ? "公開範囲を広げて移動" : SUBMIT_LABELS[open]}
             </button>
             <button type="button" onClick={close} disabled={sending}>

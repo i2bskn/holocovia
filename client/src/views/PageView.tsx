@@ -4,11 +4,12 @@ import { movePage, setTopPage, trashPage } from "../actions";
 import { markdownLinkToPage } from "../edit";
 import { formatDateTime, spaceDisplayName, widerVisibilityWarning } from "../format";
 import { folderPath } from "../folders";
+import { EditIcon, HistoryIcon, LinkIcon, MoreIcon, MoveIcon, PageIcon, PinIcon, TrashIcon } from "../icons";
 import { Link } from "../Link";
 import { type ApiClient, type ListResult, loadBacklinks, loadPageView, loadTopPage, useView } from "../load";
 import { Markdown } from "../Markdown";
 import { isValidId, navigate } from "../router";
-import { ViewStatus, useDocumentTitle, viewTitle } from "./common";
+import { Menu, SpaceKindBadge, ViewStatus, useDocumentTitle, viewTitle } from "./common";
 import { MoveFolderSelect, MoveSpaceSelect, useMoveDestination } from "./MoveDestination";
 import { folderIdToValue, valueToFolderId } from "./PageEditor";
 
@@ -59,42 +60,56 @@ export function PageView({
           <li aria-current="page">{page.title}</li>
         </ol>
       </nav>
-      <h1>{page.title}</h1>
-      <p className="page-meta">
-        更新: <time dateTime={new Date(page.updated_at).toISOString()}>{formatDateTime(page.updated_at)}</time>
-        {isValidId(page.id) && (
-          <>
-            <Link to={`/pages/${page.id}/edit`} className="page-edit-link">
-              編集
-            </Link>
-            <Link to={`/pages/${page.id}/history`} className="page-history-link">
-              履歴
-            </Link>
-            <button
-              type="button"
-              className="page-copy-link-button"
-              onClick={() => void copyLink(markdownLinkToPage(page.title, page.id), setCopy)}
-            >
-              リンクをコピー
-            </button>
-          </>
-        )}
-        {!moving && (
-          <button type="button" className="page-move-button" onClick={() => setMoving(true)}>
-            移動
-          </button>
-        )}
-        {!confirmingDelete && (
-          <button type="button" className="page-delete-button" onClick={() => setConfirmingDelete(true)}>
-            削除
-          </button>
-        )}
-      </p>
-      {/* Outside the p above, which cannot contain these. */}
-      {copy.kind === "copied" && <p role="status">コピーしました</p>}
+      <header className="page-header">
+        <h1 className="page-heading">{page.title}</h1>
+        <p className="page-info">
+          {space && <SpaceKindBadge kind={space.kind} />}
+          <span>
+            更新 <time dateTime={new Date(page.updated_at).toISOString()}>{formatDateTime(page.updated_at)}</time>
+          </span>
+        </p>
+        <div className="page-toolbar">
+          {isValidId(page.id) && (
+            <>
+              <Link to={`/pages/${page.id}/edit`} className="button button-primary">
+                <EditIcon />
+                編集
+              </Link>
+              <Link to={`/pages/${page.id}/history`} className="button">
+                <HistoryIcon />
+                履歴
+              </Link>
+              <button type="button" onClick={() => void copyLink(markdownLinkToPage(page.title, page.id), setCopy)}>
+                <LinkIcon />
+                リンクをコピー
+              </button>
+            </>
+          )}
+          <PageMenu
+            client={client}
+            page={page}
+            // Only pages in an everyone space can be shown at the top; the server checks it again.
+            canSetTopPage={isAdmin && space?.kind === "everyone"}
+            moving={moving}
+            confirmingDelete={confirmingDelete}
+            // One panel at a time: moving and deleting do not stay open together.
+            onMove={() => {
+              setConfirmingDelete(false);
+              setMoving(true);
+            }}
+            onDelete={() => {
+              setMoving(false);
+              setConfirmingDelete(true);
+            }}
+          />
+          {copy.kind === "copied" && (
+            <span className="toolbar-status" role="status">
+              コピーしました
+            </span>
+          )}
+        </div>
+      </header>
       {copy.kind === "failed" && <CopyFallback markdown={copy.markdown} />}
-      {/* Only pages in an everyone space can be shown at the top; the server checks it again. */}
-      {isAdmin && space?.kind === "everyone" && <TopPageButton client={client} page={page} />}
       {moving && (
         <MovePage
           client={client}
@@ -108,7 +123,9 @@ export function PageView({
         />
       )}
       {confirmingDelete && <TrashPage client={client} page={page} onCancel={() => setConfirmingDelete(false)} />}
-      <Markdown body={page.body} origin={origin} />
+      <article className="page-body">
+        <Markdown body={page.body} origin={origin} />
+      </article>
       <Backlinks client={client} pageId={page.id} />
     </main>
   );
@@ -177,24 +194,31 @@ function Backlinks({ client, pageId }: { client: ApiClient; pageId: string }) {
   return (
     <section className="backlinks" aria-labelledby={headingId}>
       <h2 id={headingId}>このページへのリンク</h2>
-      {state.kind === "loading" && <p>読み込み中…</p>}
-      {state.kind === "error" && <p>リンクの一覧を読み込めませんでした</p>}
-      {state.kind === "ok" && state.value.pages.length === 0 && <p>このページへのリンクはありません</p>}
+      {state.kind === "loading" && <p className="empty">読み込み中…</p>}
+      {state.kind === "error" && <p className="empty">リンクの一覧を読み込めませんでした</p>}
+      {state.kind === "ok" && state.value.pages.length === 0 && <p className="empty">このページへのリンクはありません</p>}
       {state.kind === "ok" && state.value.pages.length > 0 && (
-        <ul className="backlinks-list">
+        <ul className="entries backlinks-list">
           {state.value.pages.map((linking) => (
-            <li key={linking.id}>
-              <span className="backlinks-title">
-                {isValidId(linking.id) ? <Link to={`/pages/${linking.id}`}>{linking.title}</Link> : linking.title}
+            <li key={linking.id} className="entry">
+              <PageIcon />
+              <span className="entry-title">
+                {isValidId(linking.id) ? (
+                  <Link to={`/pages/${linking.id}`} className="stretched">
+                    {linking.title}
+                  </Link>
+                ) : (
+                  linking.title
+                )}
               </span>
-              <span className="page-meta">
-                <time dateTime={new Date(linking.updated_at).toISOString()}>{formatDateTime(linking.updated_at)}</time>
-              </span>
+              <time className="entry-meta" dateTime={new Date(linking.updated_at).toISOString()}>
+                {formatDateTime(linking.updated_at)}
+              </time>
             </li>
           ))}
         </ul>
       )}
-      {state.kind === "ok" && state.value.hasMore && <p>ほかにもあります（新しい 50 件を表示しています）</p>}
+      {state.kind === "ok" && state.value.hasMore && <p className="empty">ほかにもあります（新しい&nbsp;50&nbsp;件を表示しています）</p>}
     </section>
   );
 }
@@ -274,6 +298,7 @@ function MovePage({
       <MoveSpaceSelect destination={destination} disabled={busy} />
       <MoveFolderSelect destination={destination} value={folderValue} onChange={setFolderValue} disabled={busy} />
       {warning !== null && <p>{warning}</p>}
+      {unchanged && <p className="form-hint">今と同じ場所です。移動先を選んでください。</p>}
       <div className="folder-form-actions">
         <button
           type="submit"
@@ -314,14 +339,32 @@ type TopPageState =
   // The move to the login page has started; the button stays disabled.
   | { kind: "redirecting" };
 
-// The button for admins to show the page at the top of the home screen, or to stop showing it. The current
-// top page is loaded to tell which; nothing is shown until it is loaded. It loads the whole top page only to
-// compare the ID.
-function TopPageButton({ client, page }: { client: ApiClient; page: Page }) {
+// The "…" menu of the page toolbar: moving, deleting and, for admins, showing the page at the top of the home
+// screen. Whether the page is at the top is told by loading the current top page; the item is shown only after it
+// is loaded. It loads the whole top page only to compare the ID. The result of that item is shown next to the
+// menu, which closes when an item is chosen.
+function PageMenu({
+  client,
+  page,
+  canSetTopPage,
+  moving,
+  confirmingDelete,
+  onMove,
+  onDelete,
+}: {
+  client: ApiClient;
+  page: Page;
+  canSetTopPage: boolean;
+  moving: boolean;
+  confirmingDelete: boolean;
+  onMove: () => void;
+  onDelete: () => void;
+}) {
   const [current, setCurrent] = useState<{ kind: "loading" } | ListResult<Page | null>>({ kind: "loading" });
   const [state, setState] = useState<TopPageState>({ kind: "idle" });
 
   useEffect(() => {
+    if (!canSetTopPage) return;
     let cancelled = false;
     setCurrent({ kind: "loading" });
     void loadTopPage(client).then((next) => {
@@ -331,12 +374,11 @@ function TopPageButton({ client, page }: { client: ApiClient; page: Page }) {
       cancelled = true;
     };
     // client does not change while the screen is shown.
-  }, [page.id]);
+  }, [page.id, canSetTopPage]);
 
-  if (current.kind !== "ok") return null;
-  const isTop = current.value?.id === page.id;
+  const isTop = current.kind === "ok" && current.value?.id === page.id;
 
-  async function onClick() {
+  async function onTopPage() {
     setState({ kind: "sending" });
     const result = await setTopPage(client, isTop ? null : page.id);
     switch (result.kind) {
@@ -357,17 +399,40 @@ function TopPageButton({ client, page }: { client: ApiClient; page: Page }) {
   }
 
   return (
-    <div className="folder-actions">
-      <button
-        type="button"
-        onClick={() => void onClick()}
-        disabled={state.kind === "sending" || state.kind === "redirecting"}
-      >
-        {isTop ? "トップから外す" : "トップに表示"}
-      </button>
-      {state.kind === "done" && <p role="status">{state.message}</p>}
-      {state.kind === "error" && <p role="alert">{state.message}</p>}
-    </div>
+    <>
+      <Menu label="ページの操作" className="more-menu" summary={<MoreIcon />}>
+        <button type="button" className="menu-item" onClick={onMove} disabled={moving}>
+          <MoveIcon />
+          移動
+        </button>
+        {canSetTopPage && current.kind === "ok" && (
+          <button
+            type="button"
+            className="menu-item"
+            onClick={() => void onTopPage()}
+            disabled={state.kind === "sending" || state.kind === "redirecting"}
+          >
+            <PinIcon />
+            {isTop ? "トップから外す" : "トップに表示"}
+          </button>
+        )}
+        <hr className="menu-separator" />
+        <button type="button" className="menu-item menu-item-danger" onClick={onDelete} disabled={confirmingDelete}>
+          <TrashIcon />
+          削除
+        </button>
+      </Menu>
+      {state.kind === "done" && (
+        <span className="toolbar-status" role="status">
+          {state.message}
+        </span>
+      )}
+      {state.kind === "error" && (
+        <span className="toolbar-status toolbar-alert" role="alert">
+          {state.message}
+        </span>
+      )}
+    </>
   );
 }
 
@@ -411,9 +476,9 @@ function TrashPage({ client, page, onCancel }: { client: ApiClient; page: Page; 
   const sending = state.kind === "sending";
   return (
     <div className="trash-confirm" role="group" aria-label="ゴミ箱に移す">
-      <p>このページをゴミ箱に移します。30 日たつと完全に削除されます。</p>
+      <p>このページをゴミ箱に移します。30&nbsp;日たつと完全に削除されます。</p>
       <div className="trash-actions">
-        <button type="button" onClick={() => void onTrash()} disabled={sending}>
+        <button type="button" className="button-danger" onClick={() => void onTrash()} disabled={sending}>
           ゴミ箱に移す
         </button>
         <button type="button" onClick={onCancel} disabled={sending}>

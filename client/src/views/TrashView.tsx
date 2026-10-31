@@ -103,9 +103,9 @@ export function TrashView({ client, id, isAdmin }: { client: ApiClient; id: stri
         </ol>
       </nav>
       <h1>ゴミ箱</h1>
-      <p>削除したページは 30 日たつと完全に削除されます。</p>
+      <p className="title-note">削除したページは&nbsp;30&nbsp;日たつと完全に削除されます。</p>
       {notice && (
-        <p className="trash-notice" role="status">
+        <p className="notice" role="status">
           {notice.kind === "text" ? (
             notice.text
           ) : (
@@ -122,7 +122,7 @@ export function TrashView({ client, id, isAdmin }: { client: ApiClient; id: stri
         </p>
       )}
       {pages.length === 0 ? (
-        <p>ゴミ箱は空です</p>
+        <p className="empty">ゴミ箱は空です</p>
       ) : (
         <ul className="trash">
           {pages.map((page) => (
@@ -177,7 +177,12 @@ function TrashRow({
             元に戻す
           </button>
           {canPurge && !confirming && (
-            <button type="button" onClick={() => setConfirming(true)} disabled={sending}>
+            <button
+              type="button"
+              className="button-danger-outline"
+              onClick={() => setConfirming(true)}
+              disabled={sending}
+            >
               完全に削除
             </button>
           )}
@@ -185,9 +190,13 @@ function TrashRow({
       </div>
       {canPurge && confirming && (
         <div className="trash-confirm" role="group" aria-label="完全に削除">
-          <p>履歴ごと完全に削除します。元に戻せません。</p>
+          {/* Each sentence wraps as a whole on narrow screens. */}
+          <p>
+            <span className="sentence">履歴ごと完全に削除します。</span>
+            <span className="sentence">元に戻せません。</span>
+          </p>
           <div className="trash-actions">
-            <button type="button" onClick={() => void onConfirmPurge()} disabled={sending}>
+            <button type="button" className="button-danger" onClick={() => void onConfirmPurge()} disabled={sending}>
               完全に削除
             </button>
             <button type="button" onClick={() => setConfirming(false)} disabled={sending}>

@@ -203,7 +203,7 @@ export function DraftNotice({
         保存していない下書きがあります（{formatDateTime(prompt.draft.savedAt)}）{note !== undefined && `。${note}`}
       </p>
       <div className="editor-actions">
-        <button type="button" onClick={onApply}>
+        <button type="button" className="button-primary" onClick={onApply}>
           下書きを使う
         </button>
         <button type="button" onClick={onDiscard}>
@@ -348,7 +348,7 @@ export function PageEditor({
       {attachments}
       {/* Not a form: Enter in the title must not save a page that is still being written. */}
       <div className="editor-actions">
-        <button type="button" onClick={onSubmit} disabled={inputsDisabled}>
+        <button type="button" className="button-primary" onClick={onSubmit} disabled={inputsDisabled}>
           {submitLabel}
         </button>
         <button type="button" onClick={onCancel} disabled={sending}>

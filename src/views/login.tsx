@@ -20,7 +20,9 @@ export function LoginPage(props: { next: string; email?: string; error?: string 
             <input type="password" name="password" autocomplete="current-password" required />
           </label>
         </p>
-        <button type="submit">ログイン</button>
+        <button type="submit" class="primary">
+          ログイン
+        </button>
       </form>
     </Layout>
   );

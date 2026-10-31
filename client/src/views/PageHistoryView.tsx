@@ -1,4 +1,5 @@
 import { formatDateTime, spaceDisplayName } from "../format";
+import { ChevronIcon } from "../icons";
 import { Link } from "../Link";
 import { type ApiClient, loadPageHistoryView, useView } from "../load";
 import { isValidId } from "../router";
@@ -27,31 +28,39 @@ export function PageHistoryView({ client, id }: { client: ApiClient; id: string 
           <li aria-current="page">履歴</li>
         </ol>
       </nav>
-      <h1>{page.title} の履歴</h1>
+      <h1>「{page.title}」の履歴</h1>
+      {/* Every row has the version, its title and when it was saved, and opens that version. */}
       <ul className="revisions">
         <li>
           <span className="revision-title">
-            <Link to={`/pages/${id}`}>現在の版</Link>
-            <span className="revision-detail">版 {page.version}</span>
+            <Link to={`/pages/${id}`} className="stretched">
+              版 {page.version}
+            </Link>
+            <span className="revision-current">現在の版</span>
           </span>
+          <span className="revision-detail">{page.title}</span>
           <time className="page-updated" dateTime={new Date(page.updated_at).toISOString()}>
-            更新: {formatDateTime(page.updated_at)}
+            保存: {formatDateTime(page.updated_at)}
           </time>
+          <ChevronIcon />
         </li>
         {revisions.map((revision) => (
           <li key={revision.version}>
             <span className="revision-title">
-              <Link to={`/pages/${id}/revisions/${revision.version}`}>版 {revision.version}</Link>
-              <span className="revision-detail">{revision.title}</span>
+              <Link to={`/pages/${id}/revisions/${revision.version}`} className="stretched">
+                版 {revision.version}
+              </Link>
             </span>
+            <span className="revision-detail">{revision.title}</span>
             <time className="page-updated" dateTime={new Date(revision.created_at).toISOString()}>
               保存: {formatDateTime(revision.created_at)}
             </time>
+            <ChevronIcon />
           </li>
         ))}
       </ul>
-      {revisions.length === 0 && <p>以前の版はありません</p>}
-      <p className="page-meta">新しい 20 版まで保存されます</p>
+      {revisions.length === 0 && <p className="empty">以前の版はありません</p>}
+      <p className="title-note">新しい&nbsp;20&nbsp;版まで保存されます</p>
     </main>
   );
 }

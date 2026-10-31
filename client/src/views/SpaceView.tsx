@@ -1,9 +1,10 @@
-import { SPACE_KIND_LABELS, spaceDisplayName } from "../format";
+import { SPACE_KIND_DESCRIPTIONS, spaceDisplayName } from "../format";
 import { childFolders } from "../folders";
 import { Link } from "../Link";
 import { type ApiClient, loadSpaceView, useView } from "../load";
 import { isValidId } from "../router";
-import { ViewStatus, useDocumentTitle, viewTitle } from "./common";
+import { TrashIcon } from "../icons";
+import { SpaceKindBadge, ViewStatus, useDocumentTitle, viewTitle } from "./common";
 import { EntryList } from "./EntryList";
 import { FolderActions } from "./FolderActions";
 import { SpaceActions } from "./SpaceActions";
@@ -29,16 +30,21 @@ export function SpaceView({ client, id, isAdmin }: { client: ApiClient; id: stri
       </nav>
       <div className="title-row">
         <h1>{name}</h1>
-        <span className="space-kind">{SPACE_KIND_LABELS[space.kind]}</span>
         {isValidId(space.id) && (
-          <Link to={`/spaces/${space.id}/trash`} className="trash-link">
+          <Link to={`/spaces/${space.id}/trash`} className="button trash-link">
+            <TrashIcon />
             ゴミ箱
           </Link>
         )}
+        {isAdmin && space.kind !== "personal" && isValidId(space.id) && (
+          <SpaceActions client={client} space={space} onReload={reload} />
+        )}
+        {/* Placed before the forms of SpaceActions by CSS order. */}
+        <p className="title-note">
+          <SpaceKindBadge kind={space.kind} />
+          {SPACE_KIND_DESCRIPTIONS[space.kind]}
+        </p>
       </div>
-      {isAdmin && space.kind !== "personal" && isValidId(space.id) && (
-        <SpaceActions client={client} space={space} onReload={reload} />
-      )}
       <FolderActions client={client} space={space} folders={folders} folder={null} onReload={reload} />
       {/* Only the top level; the rest is shown on the folder screens. */}
       <EntryList

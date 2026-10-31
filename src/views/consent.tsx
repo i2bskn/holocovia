@@ -19,17 +19,17 @@ export function ConsentPage(props: { details: ConsentDescription; handle: string
         接続は <strong>{details.redirectHost}</strong> に渡されます。
       </p>
       {details.redirectIsLoopback ? (
-        <p role="alert">
+        <p role="alert" class="warning">
           <strong>このパソコン上のアプリに接続を渡します。今そのアプリから接続を始めた場合だけ許可してください。</strong>
         </p>
       ) : null}
       <p>ログイン中のユーザー: {props.email}</p>
       <p>許可すると、このアプリはあなたとして、あなたがアクセスできるスペースのページを読み書きできるようになります。</p>
-      <form method="post" action="/authorize">
+      <form method="post" action="/authorize" class="buttons">
         <input type="hidden" name="handle" value={props.handle} />
-        <button type="submit" name="decision" value="approve">
+        <button type="submit" name="decision" value="approve" class="primary">
           許可する
-        </button>{" "}
+        </button>
         <button type="submit" name="decision" value="deny">
           拒否する
         </button>

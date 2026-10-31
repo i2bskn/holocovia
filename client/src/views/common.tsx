@@ -1,4 +1,7 @@
-import { useEffect } from "react";
+import { type MouseEvent, type ReactNode, useEffect, useRef } from "react";
+import type { SpaceKind } from "../../../src/api/types";
+import { SPACE_KIND_LABELS } from "../format";
+import { SpaceKindIcon } from "../icons";
 import { Link } from "../Link";
 import type { ViewState } from "../load";
 
@@ -28,12 +31,73 @@ export function viewTitle<T>(state: ViewState<T>, readyTitle: (data: T) => strin
   }
 }
 
+// Who can see a space, as a colored label. Each kind has its own color and icon.
+export function SpaceKindBadge({ kind }: { kind: SpaceKind }) {
+  return (
+    <span className={`kind-badge kind-${kind}`}>
+      <SpaceKindIcon kind={kind} />
+      {SPACE_KIND_LABELS[kind]}
+    </span>
+  );
+}
+
+// A small menu that opens below its summary. It closes after a link or button in it is chosen, on a click
+// outside it, and on Escape.
+export function Menu({
+  label,
+  summary,
+  className,
+  children,
+}: {
+  // The accessible name of the summary, which may show only an icon.
+  label: string;
+  summary: ReactNode;
+  className?: string;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLDetailsElement>(null);
+
+  useEffect(() => {
+    function onPointerDown(event: PointerEvent) {
+      const details = ref.current;
+      if (details?.open && event.target instanceof Node && !details.contains(event.target)) details.open = false;
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      const details = ref.current;
+      if (event.key !== "Escape" || !details?.open) return;
+      details.open = false;
+      details.querySelector("summary")?.focus();
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, []);
+
+  function onClick(event: MouseEvent<HTMLDivElement>) {
+    if (event.target instanceof Element && event.target.closest("a, button") && ref.current) ref.current.open = false;
+  }
+
+  return (
+    <details ref={ref} className={className === undefined ? "menu" : `menu ${className}`}>
+      <summary aria-label={label}>{summary}</summary>
+      <div className="menu-panel" onClick={onClick}>
+        {children}
+      </div>
+    </details>
+  );
+}
+
 export function NotFound({ message }: { message: string }) {
   return (
-    <main className="main not-found">
+    <main className="main empty-state">
       <h1>{message}</h1>
       <p>
-        <Link to="/">スペースの一覧へ</Link>
+        <Link to="/" className="button">
+          スペースの一覧へ
+        </Link>
       </p>
     </main>
   );
@@ -51,7 +115,11 @@ export function ViewStatus({
 }) {
   switch (state.kind) {
     case "loading":
-      return <p className="status">読み込み中…</p>;
+      return (
+        <p className="status" role="status">
+          読み込み中…
+        </p>
+      );
     case "redirecting":
       return <p className="status">ログイン画面へ移動しています…</p>;
     case "notFound":
@@ -63,7 +131,7 @@ export function ViewStatus({
 
 export function LoadError({ message, onReload }: { message: string; onReload: () => void }) {
   return (
-    <main className="main">
+    <main className="main empty-state">
       <h1>読み込みに失敗しました</h1>
       <p>{message}</p>
       <button type="button" onClick={onReload}>
