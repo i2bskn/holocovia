@@ -14,6 +14,7 @@ import { folderPath } from "../folders";
 import { Link } from "../Link";
 import { type ApiClient, type PageData, loadPageEditView, useView } from "../load";
 import { isValidId, navigate } from "../router";
+import { useSidebarActions, useSidebarLocation, viewLocation } from "../sidebarStore";
 import { AttachmentsPanel } from "./Attachments";
 import { ViewStatus, useDocumentTitle, viewTitle } from "./common";
 import {
@@ -40,6 +41,14 @@ export function PageEditView({
 }) {
   const [state, reload] = useView(() => loadPageEditView(client, id), id);
   useDocumentTitle(viewTitle(state, (data) => `${data.page.title} を編集`));
+  useSidebarLocation(
+    viewLocation(state, ({ page }) => ({
+      spaceId: page.space_id,
+      folderId: page.folder_id,
+      pageId: page.id,
+      current: "location",
+    })),
+  );
 
   if (state.kind !== "ready") {
     return <ViewStatus state={state} notFoundMessage="ページが見つかりません" onReload={reload} />;
@@ -98,6 +107,7 @@ function PageEditForm({
     baseVersion: page.version,
   });
   const [send, setSend] = useState<SendState>({ kind: "idle" });
+  const sidebar = useSidebarActions();
   // The draft in use was written on an older version of the page.
   const [draftOutdated, setDraftOutdated] = useState(false);
   // The last selection of the body, where attachments are inserted; null until the body is touched, which
@@ -138,6 +148,8 @@ function PageEditForm({
     const draftSaved = form.syncDraft();
     setSend({ kind: "sending" });
     const result = await updatePage(client, page.id, page.version, changes);
+    // The title and the folder may have changed, even when the screen is gone or the result is unknown.
+    if (result.kind === "ok" || result.kind === "unknown") sidebar.invalidateSpaceTree(page.space_id);
     if (!form.isMounted()) return;
     switch (result.kind) {
       case "ok":

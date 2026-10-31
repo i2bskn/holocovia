@@ -5,6 +5,7 @@ import { EditIcon, MoreIcon, TrashIcon } from "../icons";
 import { Link } from "../Link";
 import type { ApiClient } from "../load";
 import { navigate } from "../router";
+import { useSidebarActions } from "../sidebarStore";
 import { Menu } from "./common";
 
 type Operation = "rename" | "delete";
@@ -24,6 +25,7 @@ export function SpaceActions({ client, space, onReload }: { client: ApiClient; s
   const [sending, setSending] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
   const [name, setName] = useState("");
+  const sidebar = useSidebarActions();
 
   const spaceId = space.id;
 
@@ -42,6 +44,9 @@ export function SpaceActions({ client, space, onReload }: { client: ApiClient; s
     setSending(true);
     setFailure(null);
     const result = await call();
+    // The list of spaces drops the trees of the spaces that are gone. Either may have happened when the result is
+    // unknown.
+    if (result.kind === "ok" || result.kind === "unknown") sidebar.invalidateSpaces();
     switch (result.kind) {
       case "ok":
         if (operation === "delete") {

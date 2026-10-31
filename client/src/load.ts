@@ -316,6 +316,15 @@ export async function loadFolderList(client: ApiClient, spaceId: string): Promis
   return { kind: "ok", value: list.value.folders };
 }
 
+// The pages of a space that are not in the trash, for the tree of the sidebar. Never rejects.
+export async function loadPageList(client: ApiClient, spaceId: string): Promise<ListResult<PageSummary[]>> {
+  if (!isValidId(spaceId)) return { kind: "error" };
+  const list = await request(() => client.api.v1.spaces[":id"].pages.$get({ param: { id: spaceId } }));
+  if (list.kind === "redirecting") return list;
+  if (list.kind !== "ok") return { kind: "error" };
+  return { kind: "ok", value: list.value.pages };
+}
+
 // The attachments of a page, for the attachments panel of the edit screen. Never rejects.
 export async function loadAttachmentList(client: ApiClient, pageId: string): Promise<ListResult<Attachment[]>> {
   if (!isValidId(pageId)) return { kind: "error" };

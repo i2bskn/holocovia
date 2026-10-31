@@ -7,6 +7,7 @@ import { folderPath } from "../folders";
 import { Link } from "../Link";
 import { type ApiClient, type PageNewData, loadPageNewView, useView } from "../load";
 import { isValidId, navigate } from "../router";
+import { useSidebarActions, useSidebarLocation, viewLocation } from "../sidebarStore";
 import { ViewStatus, useDocumentTitle, viewTitle } from "./common";
 import {
   DraftNotice,
@@ -35,6 +36,15 @@ export function PageNewView({
 }) {
   const [state, reload] = useView(() => loadPageNewView(client, spaceId), `${spaceId}/${folderId ?? ""}`);
   useDocumentTitle(viewTitle(state, () => "新しいページ"));
+  useSidebarLocation(
+    viewLocation(state, (data) => ({
+      spaceId,
+      // The same folder as the form starts with: only one of the space.
+      folderId: folderId !== null && data.folders.some((folder) => folder.id === folderId) ? folderId : null,
+      pageId: null,
+      current: "location",
+    })),
+  );
 
   if (state.kind !== "ready") {
     return <ViewStatus state={state} notFoundMessage="スペースが見つかりません" onReload={reload} />;
@@ -94,6 +104,7 @@ function PageNewForm({
     draftFields,
   });
   const [send, setSend] = useState<SendState>({ kind: "idle" });
+  const sidebar = useSidebarActions();
 
   const spacePath = `/spaces/${spaceId}`;
   const backPath = initialFolderId !== null && isValidId(initialFolderId) ? `/folders/${initialFolderId}` : spacePath;
@@ -107,6 +118,8 @@ function PageNewForm({
     setSend({ kind: "sending" });
     // The server trims the title.
     const result = await createPage(client, spaceId, form.fields);
+    // Even when the screen is gone. The page may also have been created when the result is unknown.
+    if (result.kind === "ok" || result.kind === "unknown") sidebar.invalidateSpaceTree(spaceId);
     if (!form.isMounted()) return;
     switch (result.kind) {
       case "ok":

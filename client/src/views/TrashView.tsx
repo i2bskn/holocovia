@@ -5,6 +5,7 @@ import { formatDateTime, formatPurgeRemaining, spaceDisplayName } from "../forma
 import { Link } from "../Link";
 import { type ApiClient, loadTrashView, useView } from "../load";
 import { isValidId } from "../router";
+import { useSidebarActions, useSidebarLocation, viewLocation } from "../sidebarStore";
 import { ViewStatus, useDocumentTitle, viewTitle } from "./common";
 
 // The result of the last action, shown above the list until the next one.
@@ -20,6 +21,10 @@ export function TrashView({ client, id, isAdmin }: { client: ApiClient; id: stri
   // An action is being sent. The buttons of every row are disabled until it ends.
   const [sending, setSending] = useState(false);
   useDocumentTitle(viewTitle(state, (data) => `ゴミ箱 - ${spaceDisplayName(data.space)}`));
+  useSidebarLocation(
+    viewLocation(state, (data) => ({ spaceId: data.space.id, folderId: null, pageId: null, current: "location" })),
+  );
+  const sidebar = useSidebarActions();
 
   if (state.kind !== "ready") {
     return <ViewStatus state={state} notFoundMessage="スペースが見つかりません" onReload={reload} />;
@@ -34,6 +39,9 @@ export function TrashView({ client, id, isAdmin }: { client: ApiClient; id: stri
     setSending(true);
     setNotice(null);
     const result = await restoreTrashedPage(client, page.id);
+    // The page may be back in the tree, also when someone else restored it first (not found, conflict) and when
+    // the result is unknown.
+    if (result.kind !== "error" && result.kind !== "redirecting") sidebar.invalidateSpaceTree(space.id);
     switch (result.kind) {
       case "ok":
         setNotice({ kind: "restored", id: result.page.id, title: result.page.title });

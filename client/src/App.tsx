@@ -2,10 +2,11 @@ import { type FormEvent, useEffect, useRef } from "react";
 import type { User } from "../../src/api/types";
 import { createApiClient, createApiFetch, unexpectedResponseMessage } from "./api";
 import { BrandLogo } from "./brand";
-import { LogoutIcon, SearchIcon, UsersIcon } from "./icons";
+import { LogoutIcon, SearchIcon, SidebarIcon, UsersIcon } from "./icons";
 import { Link } from "./Link";
 import { loadMe, useView } from "./load";
 import { type Route, matchRoute, navigate, usePath } from "./router";
+import { SidebarProvider, useSidebarActions, useSidebarLocation } from "./sidebarStore";
 import { markLeaving } from "./unload";
 import { LoadError, Menu, NotFound, useDocumentTitle } from "./views/common";
 import { ErrorBoundary } from "./views/ErrorBoundary";
@@ -17,6 +18,7 @@ import { PageNewView } from "./views/PageNewView";
 import { PageRevisionView } from "./views/PageRevisionView";
 import { PageView } from "./views/PageView";
 import { SearchView } from "./views/SearchView";
+import { Sidebar } from "./views/Sidebar";
 import { SpaceView } from "./views/SpaceView";
 import { TrashView } from "./views/TrashView";
 import { UsersView } from "./views/UsersView";
@@ -50,13 +52,22 @@ export function App() {
       // loadMe reports a 404 as an error; this case only completes the switch.
       return <LoadError message={unexpectedResponseMessage(404)} onReload={reload} />;
     case "ready":
+      // The sidebar keeps what it has loaded and which rows are open across screens, so the provider and the
+      // sidebar are outside the boundary that is reset on every screen.
       return (
-        <>
+        <SidebarProvider client={client}>
           <Header user={me.data} route={route} path={path} />
-          <ErrorBoundary key={path}>
-            <Screen route={route} user={me.data} />
-          </ErrorBoundary>
-        </>
+          <div className="layout">
+            <ErrorBoundary fallback={<p className="sidebar-status">ページ一覧を表示できませんでした</p>}>
+              <Sidebar path={path} />
+            </ErrorBoundary>
+            <div className="layout-screen">
+              <ErrorBoundary key={path}>
+                <Screen route={route} user={me.data} />
+              </ErrorBoundary>
+            </div>
+          </div>
+        </SidebarProvider>
       );
   }
 }
@@ -100,6 +111,7 @@ function Screen({ route, user }: { route: Route; user: User }) {
 
 function RouteNotFound() {
   useDocumentTitle("見つかりません - holocovia");
+  useSidebarLocation(null);
   return <NotFound message="ページが見つかりません" />;
 }
 
@@ -107,6 +119,7 @@ function Header({ user, route, path }: { user: User; route: Route; path: string 
   // The search screen shows its query; other screens start empty.
   const query = route.name === "search" ? route.query : "";
   const search = useRef<HTMLInputElement>(null);
+  const { openDrawer } = useSidebarActions();
 
   // "/" moves to the search field, unless the user is typing somewhere.
   useEffect(() => {
@@ -139,6 +152,10 @@ function Header({ user, route, path }: { user: User; route: Route; path: string 
   return (
     <header className="header">
       <div className="header-inner">
+        {/* Shown only on a narrow window, where the list of pages is not next to the screen. */}
+        <button type="button" className="sidebar-open" aria-label="ページ一覧" onClick={openDrawer}>
+          <SidebarIcon />
+        </button>
         <Link to="/" className="brand">
           <BrandLogo />
           <span className="sr-only">holocovia</span>

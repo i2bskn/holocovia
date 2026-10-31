@@ -9,6 +9,7 @@ import { Link } from "../Link";
 import { type ApiClient, type ListResult, loadBacklinks, loadPageView, loadTopPage, useView } from "../load";
 import { Markdown } from "../Markdown";
 import { isValidId, navigate } from "../router";
+import { useSidebarActions, useSidebarLocation, viewLocation } from "../sidebarStore";
 import { Menu, SpaceKindBadge, ViewStatus, useDocumentTitle, viewTitle } from "./common";
 import { MoveFolderSelect, MoveSpaceSelect, useMoveDestination } from "./MoveDestination";
 import { folderIdToValue, valueToFolderId } from "./PageEditor";
@@ -31,6 +32,14 @@ export function PageView({
   const [moving, setMoving] = useState(false);
   const [copy, setCopy] = useState<CopyState>({ kind: "idle" });
   useDocumentTitle(viewTitle(state, (data) => data.page.title));
+  useSidebarLocation(
+    viewLocation(state, ({ page }) => ({
+      spaceId: page.space_id,
+      folderId: page.folder_id,
+      pageId: page.id,
+      current: "page",
+    })),
+  );
 
   // The result of copying the link is about the page it was copied from.
   useEffect(() => {
@@ -253,6 +262,7 @@ function MovePage({
   const [spaceId, setSpaceId] = useState(page.space_id);
   // The value of the folder select; see folderIdToValue.
   const [folderValue, setFolderValue] = useState(folderIdToValue(page.folder_id));
+  const sidebar = useSidebarActions();
   const destination = useMoveDestination(client, true, spaceId, (next) => {
     setSpaceId(next);
     setFolderValue(folderIdToValue(null));
@@ -270,6 +280,11 @@ function MovePage({
     event.preventDefault();
     setState({ kind: "sending" });
     const result = await movePage(client, page.id, { version: page.version, spaceId, folderId });
+    // The trees of both spaces change. The move may also have happened when the result is unknown.
+    if (result.kind === "ok" || result.kind === "unknown") {
+      sidebar.invalidateSpaceTree(page.space_id);
+      if (spaceId !== page.space_id) sidebar.invalidateSpaceTree(spaceId);
+    }
     switch (result.kind) {
       case "ok":
         // The breadcrumbs show the new space and folder after the reload.
@@ -450,10 +465,13 @@ function pathAfterTrash(page: Page): string | null {
 
 function TrashPage({ client, page, onCancel }: { client: ApiClient; page: Page; onCancel: () => void }) {
   const [state, setState] = useState<TrashState>({ kind: "idle" });
+  const sidebar = useSidebarActions();
 
   async function onTrash() {
     setState({ kind: "sending" });
     const result = await trashPage(client, page.id);
+    // The page may also be in the trash when the result is unknown.
+    if (result.kind === "ok" || result.kind === "unknown") sidebar.invalidateSpaceTree(page.space_id);
     switch (result.kind) {
       case "ok":
         navigate(pathAfterTrash(page) ?? "/");

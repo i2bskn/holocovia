@@ -3,6 +3,7 @@ import { childFolders, folderPath } from "../folders";
 import { Link } from "../Link";
 import { type ApiClient, loadFolderView, useView } from "../load";
 import { isValidId } from "../router";
+import { useSidebarLocation, viewLocation } from "../sidebarStore";
 import { SpaceKindBadge, ViewStatus, useDocumentTitle, viewTitle } from "./common";
 import { EntryList } from "./EntryList";
 import { FolderActions } from "./FolderActions";
@@ -10,6 +11,9 @@ import { FolderActions } from "./FolderActions";
 export function FolderView({ client, id }: { client: ApiClient; id: string }) {
   const [state, reload] = useView(() => loadFolderView(client, id), id);
   useDocumentTitle(viewTitle(state, (data) => data.folder.name));
+  useSidebarLocation(
+    viewLocation(state, (data) => ({ spaceId: data.space.id, folderId: data.folder.id, pageId: null, current: "page" })),
+  );
 
   if (state.kind !== "ready") {
     return <ViewStatus state={state} notFoundMessage="フォルダが見つかりません" onReload={reload} />;

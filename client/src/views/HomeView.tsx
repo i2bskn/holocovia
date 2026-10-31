@@ -13,6 +13,7 @@ import { Link } from "../Link";
 import { type ApiClient, loadHomeView, useView } from "../load";
 import { Markdown } from "../Markdown";
 import { isValidId, navigate } from "../router";
+import { useSidebarActions, useSidebarLocation, viewLocation } from "../sidebarStore";
 import { ViewStatus, useDocumentTitle, viewTitle } from "./common";
 
 const UNKNOWN_RESULT_MESSAGE = "サーバーに接続できませんでした。読み込み直して確かめてください";
@@ -20,6 +21,7 @@ const UNKNOWN_RESULT_MESSAGE = "サーバーに接続できませんでした。
 export function HomeView({ client, isAdmin, origin }: { client: ApiClient; isAdmin: boolean; origin: string }) {
   const [state, reload] = useView(() => loadHomeView(client), "home");
   useDocumentTitle(viewTitle(state, () => null));
+  useSidebarLocation(null);
 
   if (state.kind !== "ready") {
     return <ViewStatus state={state} notFoundMessage="ページが見つかりません" onReload={reload} />;
@@ -162,6 +164,7 @@ function CreateSpace({ client, onReload }: { client: ApiClient; onReload: () => 
   const [failure, setFailure] = useState<string | null>(null);
   const [kind, setKind] = useState<CreateSpaceRequest["kind"]>("everyone");
   const [name, setName] = useState("");
+  const sidebar = useSidebarActions();
 
   function openForm() {
     setOpen(true);
@@ -179,6 +182,8 @@ function CreateSpace({ client, onReload }: { client: ApiClient; onReload: () => 
     setSending(true);
     setFailure(null);
     const result = await createSpace(client, { kind, name });
+    // The space may also have been created when the result is unknown.
+    if (result.kind === "ok" || result.kind === "unknown") sidebar.invalidateSpaces();
     switch (result.kind) {
       case "ok":
         if (isValidId(result.space.id)) {

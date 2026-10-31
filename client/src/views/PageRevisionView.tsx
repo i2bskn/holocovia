@@ -6,6 +6,7 @@ import { Link } from "../Link";
 import { type ApiClient, loadPageRevisionView, useView } from "../load";
 import { Markdown } from "../Markdown";
 import { navigate } from "../router";
+import { useSidebarActions, useSidebarLocation, viewLocation } from "../sidebarStore";
 import { ViewStatus, useDocumentTitle, viewTitle } from "./common";
 
 export function PageRevisionView({
@@ -21,6 +22,14 @@ export function PageRevisionView({
 }) {
   const [state, reload] = useView(() => loadPageRevisionView(client, id, version), `${id}/${version}`);
   useDocumentTitle(viewTitle(state, (data) => `${data.page.title} の版 ${data.revision.version}`));
+  useSidebarLocation(
+    viewLocation(state, ({ page }) => ({
+      spaceId: page.space_id,
+      folderId: page.folder_id,
+      pageId: page.id,
+      current: "location",
+    })),
+  );
 
   if (state.kind !== "ready") {
     // A missing page and a missing revision share the message: a screen has one not found message.
@@ -79,10 +88,13 @@ function RestoreRevision({
   onReload: () => void;
 }) {
   const [state, setState] = useState<RestoreState>({ kind: "closed" });
+  const sidebar = useSidebarActions();
 
   async function onRestore() {
     setState({ kind: "sending" });
     const result = await restoreRevision(client, page.id, revision.version, page.version);
+    // The title may have changed; the restore may also have happened when the result is unknown.
+    if (result.kind === "ok" || result.kind === "unknown") sidebar.invalidateSpaceTree(page.space_id);
     switch (result.kind) {
       case "ok":
         navigate(`/pages/${page.id}`);

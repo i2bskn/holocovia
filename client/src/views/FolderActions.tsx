@@ -7,6 +7,7 @@ import { EditIcon, MoreIcon, MoveIcon, PlusIcon, TrashIcon } from "../icons";
 import { Link } from "../Link";
 import type { ApiClient } from "../load";
 import { isValidId, navigate } from "../router";
+import { useSidebarActions } from "../sidebarStore";
 import { Menu } from "./common";
 import { MoveFolderSelect, MoveSpaceSelect, useMoveDestination } from "./MoveDestination";
 import { folderIdToValue, valueToFolderId } from "./PageEditor";
@@ -49,6 +50,7 @@ export function FolderActions({
   // The destination space of a move, and the value of its folder select (see folderIdToValue).
   const [moveSpaceId, setMoveSpaceId] = useState(space.id);
   const [parentValue, setParentValue] = useState("");
+  const sidebar = useSidebarActions();
   const destination = useMoveDestination(client, open === "move", moveSpaceId, (next) => {
     setMoveSpaceId(next);
     setParentValue(folderIdToValue(null));
@@ -81,7 +83,13 @@ export function FolderActions({
   async function run(operation: Operation, call: () => Promise<FolderActionResult>) {
     setSending(true);
     setFailure(null);
+    // A move to another space changes the trees of both spaces.
+    const changedSpaceIds = operation === "move" && moveSpaceId !== spaceId ? [spaceId, moveSpaceId] : [spaceId];
     const result = await call();
+    // The operation may also have happened when the result is unknown.
+    if (result.kind === "ok" || result.kind === "unknown") {
+      for (const id of changedSpaceIds) sidebar.invalidateSpaceTree(id);
+    }
     switch (result.kind) {
       case "ok":
         if (operation === "delete") {

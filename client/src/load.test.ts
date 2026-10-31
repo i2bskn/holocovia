@@ -17,6 +17,7 @@ import {
   loadHomeView,
   loadPageEditView,
   loadPageHistoryView,
+  loadPageList,
   loadPageNewView,
   loadPageRevisionView,
   loadPageView,
@@ -177,6 +178,41 @@ describe("loadBacklinks", () => {
   it("is an error without a request for an invalid id", async () => {
     const { client, fetch } = setup({});
     expect(await loadBacklinks(client, "../x")).toEqual({ kind: "error" });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("loadPageList", () => {
+  const id = "00000000-0000-4000-8000-000000000001";
+  const url = `/api/v1/spaces/${id}/pages`;
+
+  it("is ok with the pages", async () => {
+    const { client } = setup({ [url]: [json(200, { pages: [SUMMARY] })] });
+    expect(await loadPageList(client, id)).toEqual({ kind: "ok", value: [SUMMARY] });
+  });
+
+  it("is an error when the space is 404", async () => {
+    const { client } = setup({ [url]: [apiError(404, "スペースが見つかりません")] });
+    expect(await loadPageList(client, id)).toEqual({ kind: "error" });
+  });
+
+  it("is an error when the request fails", async () => {
+    const { client } = setup({ [url]: [apiError(500, "サーバーでエラーが発生しました")] });
+    expect(await loadPageList(client, id)).toEqual({ kind: "error" });
+  });
+
+  it("moves to the login page when it stays 401 after the refresh", async () => {
+    const { client, redirectToLogin } = setup({
+      [url]: [unauthorized, unauthorized],
+      "/auth/refresh": [() => new Response(null, { status: 401 })],
+    });
+    expect(await loadPageList(client, id)).toEqual({ kind: "redirecting" });
+    expect(redirectToLogin).toHaveBeenCalledTimes(1);
+  });
+
+  it("is an error without a request for an invalid id", async () => {
+    const { client, fetch } = setup({});
+    expect(await loadPageList(client, "../x")).toEqual({ kind: "error" });
     expect(fetch).not.toHaveBeenCalled();
   });
 });

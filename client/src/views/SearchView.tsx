@@ -2,11 +2,13 @@ import { formatDateTime, formatSnippet, splitByQuery } from "../format";
 import { Link } from "../Link";
 import { type ApiClient, loadSearchView, useView } from "../load";
 import { isValidId } from "../router";
+import { useSidebarLocation } from "../sidebarStore";
 import { ViewStatus, useDocumentTitle, viewTitle } from "./common";
 
 export function SearchView({ client, query }: { client: ApiClient; query: string }) {
   const [state, reload] = useView(() => loadSearchView(client, query), query);
   useDocumentTitle(viewTitle(state, (data) => (data.query === "" ? "検索" : `「${data.query}」の検索結果`)));
+  useSidebarLocation(null);
 
   if (state.kind !== "ready") {
     return <ViewStatus state={state} notFoundMessage="ページが見つかりません" onReload={reload} />;

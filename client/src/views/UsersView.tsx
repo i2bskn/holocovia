@@ -11,6 +11,7 @@ import {
 import { formatDateTime } from "../format";
 import { PlusIcon } from "../icons";
 import { type ApiClient, type UsersData, loadUsersView, useView } from "../load";
+import { useSidebarLocation } from "../sidebarStore";
 import { ViewStatus, useDocumentTitle, viewTitle } from "./common";
 
 type Role = User["role"];
@@ -29,6 +30,7 @@ export function UsersView({ client, currentUserId }: { client: ApiClient; curren
   // that follows, which may remove the row the operation was opened from.
   const [notice, setNotice] = useState<string | null>(null);
   useDocumentTitle(viewTitle(state, () => "ユーザー管理"));
+  useSidebarLocation(null);
 
   if (state.kind !== "ready") {
     return <ViewStatus state={state} notFoundMessage="ページが見つかりません" onReload={reload} />;

@@ -3,6 +3,7 @@ import { childFolders } from "../folders";
 import { Link } from "../Link";
 import { type ApiClient, loadSpaceView, useView } from "../load";
 import { isValidId } from "../router";
+import { useSidebarLocation, viewLocation } from "../sidebarStore";
 import { TrashIcon } from "../icons";
 import { SpaceKindBadge, ViewStatus, useDocumentTitle, viewTitle } from "./common";
 import { EntryList } from "./EntryList";
@@ -12,6 +13,9 @@ import { SpaceActions } from "./SpaceActions";
 export function SpaceView({ client, id, isAdmin }: { client: ApiClient; id: string; isAdmin: boolean }) {
   const [state, reload] = useView(() => loadSpaceView(client, id), id);
   useDocumentTitle(viewTitle(state, (data) => spaceDisplayName(data.space)));
+  useSidebarLocation(
+    viewLocation(state, (data) => ({ spaceId: data.space.id, folderId: null, pageId: null, current: "page" })),
+  );
 
   if (state.kind !== "ready") {
     return <ViewStatus state={state} notFoundMessage="スペースが見つかりません" onReload={reload} />;

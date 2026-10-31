@@ -3,11 +3,20 @@ import { ChevronIcon } from "../icons";
 import { Link } from "../Link";
 import { type ApiClient, loadPageHistoryView, useView } from "../load";
 import { isValidId } from "../router";
+import { useSidebarLocation, viewLocation } from "../sidebarStore";
 import { ViewStatus, useDocumentTitle, viewTitle } from "./common";
 
 export function PageHistoryView({ client, id }: { client: ApiClient; id: string }) {
   const [state, reload] = useView(() => loadPageHistoryView(client, id), id);
   useDocumentTitle(viewTitle(state, (data) => `${data.page.title} の履歴`));
+  useSidebarLocation(
+    viewLocation(state, ({ page }) => ({
+      spaceId: page.space_id,
+      folderId: page.folder_id,
+      pageId: page.id,
+      current: "location",
+    })),
+  );
 
   if (state.kind !== "ready") {
     return <ViewStatus state={state} notFoundMessage="ページが見つかりません" onReload={reload} />;

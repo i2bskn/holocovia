@@ -149,6 +149,33 @@ export function ChevronIcon() {
   );
 }
 
+// Opens the list of pages: a panel on the left side of a window.
+export function SidebarIcon() {
+  return (
+    <Icon>
+      <rect x="3.5" y="4.5" width="17" height="15" rx="1.5" />
+      <path d="M9.5 4.5v15M5.5 8.5h2M5.5 11.5h2" />
+    </Icon>
+  );
+}
+
+export function ReloadIcon() {
+  return (
+    <Icon>
+      <path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3" />
+      <path d="M19.5 4.5v4h-4" />
+    </Icon>
+  );
+}
+
+export function CloseIcon() {
+  return (
+    <Icon>
+      <path d="m6 6 12 12M18 6 6 18" />
+    </Icon>
+  );
+}
+
 // Who can see a space: everyone, admins only, or the owner only.
 export function SpaceKindIcon({ kind }: { kind: SpaceKind }) {
   switch (kind) {
