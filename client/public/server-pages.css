@@ -18,19 +18,19 @@
   --ink-3: #606b70;
   --line: #dfe2dc;
   --line-strong: #c5cbc6;
-  --accent: #218271;
-  --accent-strong: #1a6a5c;
-  --accent-soft: #e0f0ec;
+  --accent: #b75a37;
+  --accent-strong: #9c4a2c;
+  --accent-soft: #f7e7df;
   --on-accent: #ffffff;
-  --link: #1b6e60;
-  --focus: #218271;
+  --link: #a14d2e;
+  --focus: #b75a37;
   --danger: #b3261e;
   --danger-soft: #fbeceb;
   --warning: #8a4f00;
   --warning-soft: #f7ead2;
   --shadow: 0 1px 2px rgb(34 46 52 / 0.05), 0 8px 24px rgb(34 46 52 / 0.08);
   /* The logo: the brand color and text color, or all white on dark backgrounds (the logo guide). */
-  --logo-symbol: #218271;
+  --logo-symbol: #b75a37;
   --logo-text: #222e34;
 
   --radius: 0.625rem;
@@ -46,12 +46,12 @@
     --ink-3: #93a0a4;
     --line: #283235;
     --line-strong: #3a4649;
-    --accent: #5ec2ae;
-    --accent-strong: #85d6c6;
-    --accent-soft: #183430;
-    --on-accent: #0b211d;
-    --link: #7ccfbf;
-    --focus: #7ccfbf;
+    --accent: #e8906c;
+    --accent-strong: #f0aa8c;
+    --accent-soft: #3a2620;
+    --on-accent: #2a120a;
+    --link: #eea383;
+    --focus: #eea383;
     --danger: #f08b80;
     --danger-soft: #3a1f1c;
     --warning: #eab463;

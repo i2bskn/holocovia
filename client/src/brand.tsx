@@ -1,9 +1,6 @@
 import {
   HORIZONTAL_VIEW_BOX,
-  SYMBOL_BRIDGE,
-  SYMBOL_BRIDGE_WIDTH,
-  SYMBOL_POST_WIDTH,
-  SYMBOL_POSTS,
+  SYMBOL_STROKES,
   SYMBOL_VIEW_BOX,
   WORDMARK_PATHS,
   WORDMARK_TRANSFORM,
@@ -16,12 +13,12 @@ function Symbol() {
       className="brand-symbol"
       fill="none"
       stroke="currentColor"
-      strokeWidth={SYMBOL_POST_WIDTH}
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <path d={SYMBOL_POSTS} />
-      <path d={SYMBOL_BRIDGE} strokeWidth={SYMBOL_BRIDGE_WIDTH} />
+      {SYMBOL_STROKES.map(({ d, width }) => (
+        <path key={d} d={d} strokeWidth={width} />
+      ))}
     </g>
   );
 }

@@ -3,10 +3,7 @@ import { html } from "hono/html";
 import type { Child } from "hono/jsx";
 import {
   HORIZONTAL_VIEW_BOX,
-  SYMBOL_BRIDGE,
-  SYMBOL_BRIDGE_WIDTH,
-  SYMBOL_POST_WIDTH,
-  SYMBOL_POSTS,
+  SYMBOL_STROKES,
   WORDMARK_PATHS,
   WORDMARK_TRANSFORM,
 } from "../brand";
@@ -35,12 +32,12 @@ export function Layout(props: { title: string; children?: Child }) {
                 class="brand-symbol"
                 fill="none"
                 stroke="currentColor"
-                stroke-width={SYMBOL_POST_WIDTH}
                 stroke-linecap="round"
                 stroke-linejoin="round"
               >
-                <path d={SYMBOL_POSTS} />
-                <path d={SYMBOL_BRIDGE} stroke-width={SYMBOL_BRIDGE_WIDTH} />
+                {SYMBOL_STROKES.map(({ d, width }) => (
+                  <path d={d} stroke-width={width} />
+                ))}
               </g>
               <g class="brand-wordmark" transform={WORDMARK_TRANSFORM} fill="currentColor">
                 {WORDMARK_PATHS.map((d) => (
