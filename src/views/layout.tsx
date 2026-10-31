@@ -8,8 +8,8 @@ import {
   WORDMARK_TRANSFORM,
 } from "../brand";
 
-// The screens served by the Worker (login, setup, consent). They are styled by /server-pages.css, a static
-// asset (client/public), because the SPA's stylesheet has a hashed name.
+// The screens served by the Worker (login, setup, consent). They are styled by /server-pages.css and
+// scripted by /server-pages.js, static assets (client/public), because the SPA's files have hashed names.
 export function Layout(props: { title: string; children?: Child }) {
   return html`<!DOCTYPE html>${(
     <html lang="ja">
@@ -22,6 +22,7 @@ export function Layout(props: { title: string; children?: Child }) {
         <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         <link rel="stylesheet" href="/server-pages.css" />
+        <script src="/server-pages.js" defer></script>
         <title>{`${props.title} - libreno`}</title>
       </head>
       <body>

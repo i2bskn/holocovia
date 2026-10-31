@@ -314,6 +314,9 @@ describe("GET /authorize", () => {
     expect(consent.html).toContain("client.example");
     expect(consent.html).toContain(member.email);
     expect(consent.html).not.toContain("このパソコン上のアプリ");
+    // A second click on 許可する would be rejected, because the first POST uses up the transaction.
+    expect(consent.html).toContain('<script src="/server-pages.js" defer="">');
+    expect(consent.html).toMatch(/<form [^>]*action="\/authorize"[^>]*data-single-submit/);
     const res = await send(authorizeUrl(ORIGIN, consent.clientId, (await pkce()).challenge), {
       cookies: memberCookies,
     });

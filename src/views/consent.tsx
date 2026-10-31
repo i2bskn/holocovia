@@ -25,7 +25,8 @@ export function ConsentPage(props: { details: ConsentDescription; handle: string
       ) : null}
       <p>ログイン中のユーザー: {props.email}</p>
       <p>許可すると、このアプリはあなたとして、あなたがアクセスできるスペースのページを読み書きできるようになります。</p>
-      <form method="post" action="/authorize" class="buttons">
+      {/* Sent once (server-pages.js): the first POST uses up the consent transaction. */}
+      <form method="post" action="/authorize" class="buttons" data-single-submit>
         <input type="hidden" name="handle" value={props.handle} />
         <button type="submit" name="decision" value="approve" class="primary">
           許可する
