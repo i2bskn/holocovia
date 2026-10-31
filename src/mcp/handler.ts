@@ -57,7 +57,7 @@ export const mcpHandler = {
 
     // A new server and transport per request (stateless).
     const server = new McpServer(
-      { name: "holocovia", version: "0.0.0" },
+      { name: "libreno", version: "0.0.0" },
       // Avoids compiling Ajv on every request.
       { jsonSchemaValidator: new CfWorkerJsonSchemaValidator() },
     );

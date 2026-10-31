@@ -360,7 +360,7 @@ describe("personal space backfill at login", () => {
   it("creates a missing personal space on POST /auth/refresh", async () => {
     const legacy = await createUserWithoutSpace({ email: "legacy@example.com" });
     const session = await issueSession(db, legacy.id, "password", T0);
-    const cookies = { "__Host-holocovia_rt": session.refreshToken };
+    const cookies = { "__Host-libreno_rt": session.refreshToken };
 
     const res = await send("/auth/refresh", { method: "POST", cookies });
     expect(res.status).toBe(204);
@@ -370,7 +370,7 @@ describe("personal space backfill at login", () => {
   it("creates a missing personal space on GET /auth/login with a refresh cookie", async () => {
     const legacy = await createUserWithoutSpace({ email: "legacy@example.com" });
     const session = await issueSession(db, legacy.id, "password", T0);
-    const cookies = { "__Host-holocovia_rt": session.refreshToken };
+    const cookies = { "__Host-libreno_rt": session.refreshToken };
 
     const res = await send("/auth/login?next=/", { cookies });
     expect(res.status).toBe(302);

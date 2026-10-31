@@ -99,15 +99,15 @@ describe("password login", () => {
     expect(res.status).toBe(303);
     expect(res.headers.get("Location")).toBe("/wiki?x=1#top");
     const cookies = setCookies(res);
-    expect(Object.keys(cookies).sort()).toEqual(["__Host-holocovia_at", "__Host-holocovia_rt"]);
+    expect(Object.keys(cookies).sort()).toEqual(["__Host-libreno_at", "__Host-libreno_rt"]);
     for (const cookie of Object.values(cookies)) {
       expect(cookie.raw).toMatch(/HttpOnly/);
       expect(cookie.raw).toMatch(/Secure/);
       expect(cookie.raw).toMatch(/SameSite=Lax/);
       expect(cookie.raw).toMatch(/Path=\//);
     }
-    expect(cookies["__Host-holocovia_at"]?.maxAge).toBe(15 * 60);
-    expect(cookies["__Host-holocovia_rt"]?.maxAge).toBe(30 * 24 * 60 * 60);
+    expect(cookies["__Host-libreno_at"]?.maxAge).toBe(15 * 60);
+    expect(cookies["__Host-libreno_rt"]?.maxAge).toBe(30 * 24 * 60 * 60);
   });
 
   it("returns 401 for a wrong password", async () => {

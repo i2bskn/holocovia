@@ -5,9 +5,9 @@ import type { NewSession } from "./sessions";
 import { ACCESS_TOKEN_TTL_SECONDS, signAccessToken } from "./tokens";
 
 // Names without the "__Host-" prefix; hono adds it via `prefix: "host"`.
-const ACCESS_COOKIE = "holocovia_at";
-const REFRESH_COOKIE = "holocovia_rt";
-const OIDC_COOKIE = "holocovia_oidc";
+const ACCESS_COOKIE = "libreno_at";
+const REFRESH_COOKIE = "libreno_rt";
+const OIDC_COOKIE = "libreno_oidc";
 export const OIDC_COOKIE_TTL_SECONDS = 10 * 60;
 
 const baseOptions: CookieOptions = {

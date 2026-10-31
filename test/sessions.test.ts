@@ -40,8 +40,8 @@ async function familyRows(rt: string) {
 
 function expectCleared(res: Response) {
   const cookies = setCookies(res);
-  expect(cookies["__Host-holocovia_at"]?.maxAge).toBe(0);
-  expect(cookies["__Host-holocovia_rt"]?.maxAge).toBe(0);
+  expect(cookies["__Host-libreno_at"]?.maxAge).toBe(0);
+  expect(cookies["__Host-libreno_rt"]?.maxAge).toBe(0);
 }
 
 beforeEach(async () => {
@@ -61,11 +61,11 @@ describe("refresh", () => {
     const res = await refresh(before);
     expect(res.status).toBe(204);
     const after = sessionCookies(res);
-    expect(after["__Host-holocovia_rt"]).not.toBe(before["__Host-holocovia_rt"]);
-    expect(after["__Host-holocovia_at"]).not.toBe(before["__Host-holocovia_at"]);
-    expect(setCookies(res)["__Host-holocovia_rt"]?.maxAge).toBe((30 * DAY - 1000) / 1000);
+    expect(after["__Host-libreno_rt"]).not.toBe(before["__Host-libreno_rt"]);
+    expect(after["__Host-libreno_at"]).not.toBe(before["__Host-libreno_at"]);
+    expect(setCookies(res)["__Host-libreno_rt"]?.maxAge).toBe((30 * DAY - 1000) / 1000);
 
-    const rows = await familyRows(after["__Host-holocovia_rt"]);
+    const rows = await familyRows(after["__Host-libreno_rt"]);
     expect(rows).toHaveLength(2);
     const old = rows.find((r) => r.rotatedAt !== null);
     const current = rows.find((r) => r.rotatedAt === null);
@@ -84,7 +84,7 @@ describe("refresh", () => {
     const res = await refresh(first);
     expect(res.status).toBe(401);
     expectCleared(res);
-    const rows = await familyRows(second["__Host-holocovia_rt"]);
+    const rows = await familyRows(second["__Host-libreno_rt"]);
     expect(rows.every((r) => r.revokedAt !== null)).toBe(true);
 
     expect((await refresh(second)).status).toBe(401);
@@ -100,7 +100,7 @@ describe("refresh", () => {
     const res = await refresh(first);
     expect(res.status).toBe(401);
     expect(res.headers.getSetCookie()).toHaveLength(0);
-    const rows = await familyRows(second["__Host-holocovia_rt"]);
+    const rows = await familyRows(second["__Host-libreno_rt"]);
     expect(rows.every((r) => r.revokedAt === null)).toBe(true);
 
     expect((await refresh(second)).status).toBe(204);
@@ -112,7 +112,7 @@ describe("refresh", () => {
     const res = await refresh(cookies);
     expect(res.status).toBe(204);
     cookies = sessionCookies(res);
-    expect(setCookies(res)["__Host-holocovia_rt"]?.maxAge).toBe(DAY / 1000);
+    expect(setCookies(res)["__Host-libreno_rt"]?.maxAge).toBe(DAY / 1000);
 
     setNow(T0 + 30 * DAY);
     const expired = await refresh(cookies);
@@ -144,7 +144,7 @@ describe("refresh", () => {
     for (const res of results.filter((r) => r.status === 401)) {
       expect(res.headers.getSetCookie()).toHaveLength(0);
     }
-    const rows = await familyRows(cookies["__Host-holocovia_rt"]);
+    const rows = await familyRows(cookies["__Host-libreno_rt"]);
     expect(rows).toHaveLength(2);
     expect(rows.every((r) => r.revokedAt === null)).toBe(true);
   });
@@ -172,7 +172,7 @@ describe("auth mode switch", () => {
     const res = await refresh(cookies, { url: `${OIDC_ORIGIN}/auth/refresh`, env: oidcEnv as Record<string, string> });
     expect(res.status).toBe(401);
     expectCleared(res);
-    const rows = await familyRows(cookies["__Host-holocovia_rt"]);
+    const rows = await familyRows(cookies["__Host-libreno_rt"]);
     expect(rows.every((r) => r.revokedAt !== null)).toBe(true);
     // Switching back does not revive it.
     expect((await refresh(cookies)).status).toBe(401);
@@ -180,7 +180,7 @@ describe("auth mode switch", () => {
 
   it("revokes oidc sessions after switching to password", async () => {
     const issued = await issueSession(db, alice.id, "oidc", T0);
-    const res = await refresh({ "__Host-holocovia_rt": issued.refreshToken });
+    const res = await refresh({ "__Host-libreno_rt": issued.refreshToken });
     expect(res.status).toBe(401);
     const rows = await familyRows(issued.refreshToken);
     expect(rows.every((r) => r.revokedAt !== null)).toBe(true);
@@ -189,7 +189,7 @@ describe("auth mode switch", () => {
   it("revokes oidc sessions of users removed from the allowlist", async () => {
     const issued = await issueSession(db, alice.id, "oidc", T0);
     const res = await refresh(
-      { "__Host-holocovia_rt": issued.refreshToken },
+      { "__Host-libreno_rt": issued.refreshToken },
       { url: `${OIDC_ORIGIN}/auth/refresh`, env: { ...(oidcEnv as Record<string, string>), ALLOWED_EMAILS: "other.com" } },
     );
     expect(res.status).toBe(401);
@@ -220,7 +220,7 @@ describe("logout", () => {
     setNow(T0 + 16 * 60 * 1000);
     const res = await send("/auth/logout", {
       method: "POST",
-      cookies: { "__Host-holocovia_at": cookies["__Host-holocovia_at"] },
+      cookies: { "__Host-libreno_at": cookies["__Host-libreno_at"] },
     });
     expect(res.status).toBe(200);
     expect((await refresh(cookies)).status).toBe(401);
@@ -255,7 +255,7 @@ describe("GET /auth/login", () => {
       expect(res.status).toBe(204);
       expect(res.headers.getSetCookie()).toHaveLength(0);
     }
-    const rows = await familyRows(cookies["__Host-holocovia_rt"]);
+    const rows = await familyRows(cookies["__Host-libreno_rt"]);
     expect(rows).toHaveLength(1);
     expect(rows[0]?.rotatedAt).toBeNull();
   });
@@ -265,13 +265,13 @@ describe("GET /auth/login", () => {
     const res = await send("/auth/login?next=/wiki", { cookies, method: "HEAD" });
     expect(res.status).toBe(204);
     expect(res.headers.getSetCookie()).toHaveLength(0);
-    const rows = await familyRows(cookies["__Host-holocovia_rt"]);
+    const rows = await familyRows(cookies["__Host-libreno_rt"]);
     expect(rows).toHaveLength(1);
     expect(rows[0]?.rotatedAt).toBeNull();
   });
 
   it("clears cookies and shows the form when the refresh token is invalid", async () => {
-    const res = await send("/auth/login", { cookies: { "__Host-holocovia_rt": "unknown" } });
+    const res = await send("/auth/login", { cookies: { "__Host-libreno_rt": "unknown" } });
     expect(res.status).toBe(200);
     expectCleared(res);
   });

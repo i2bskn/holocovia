@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "holocovia",
+  "name": "libreno",
   "main": "src/index.ts",
   // Must not exceed the newest date supported by the workerd bundled with wrangler and
   // @cloudflare/vitest-plugin (workerd 1.20261023.1), so that tests and production use the same date.
@@ -44,7 +44,7 @@
       "binding": "DB",
       // No database_id: `wrangler deploy` provisions the database automatically, or connects to an
       // existing D1 database with this name in the account.
-      "database_name": "holocovia",
+      "database_name": "libreno",
       "migrations_dir": "drizzle/migrations"
     }
   ],

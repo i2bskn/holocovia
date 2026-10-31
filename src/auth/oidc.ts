@@ -5,8 +5,8 @@ import { isEmailAllowed, parseAllowlist } from "./allowlist";
 import { OIDC_COOKIE_TTL_SECONDS } from "./cookies";
 import { normalizeEmail, normalizeName } from "./validate";
 
-const STATE_ISSUER = "holocovia";
-const STATE_AUDIENCE = "holocovia-oidc";
+const STATE_ISSUER = "libreno";
+const STATE_AUDIENCE = "libreno-oidc";
 export const CALLBACK_PATH = "/auth/oidc/callback";
 
 // Discovery results are cached per isolate. Failed lookups are not cached.

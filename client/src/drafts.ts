@@ -11,7 +11,7 @@ export type PageDraft = {
   savedAt: number;
 };
 
-const DRAFT_KEY_PREFIX = "holocovia:draft:";
+const DRAFT_KEY_PREFIX = "libreno:draft:";
 
 // Drafts older than this are ignored and removed.
 export const DRAFT_TTL_MS = 30 * 24 * 60 * 60 * 1000;

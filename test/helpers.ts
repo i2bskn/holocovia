@@ -7,7 +7,7 @@ import type { Bindings } from "../src/env";
 import { insertPersonalSpaceStatement } from "../src/spaces/queries";
 import worker from "../src/index";
 
-export const ORIGIN = "https://holocovia.test";
+export const ORIGIN = "https://libreno.test";
 export const OIDC_ORIGIN = "https://wiki.example.com";
 export const PASSWORD = "correct horse battery";
 
@@ -40,7 +40,7 @@ export const oidcEnv: Partial<Bindings> = {
   AUTH_MODE: "oidc",
   APP_ORIGIN: OIDC_ORIGIN,
   OIDC_ISSUER: "https://idp.example.com",
-  OIDC_CLIENT_ID: "holocovia-client",
+  OIDC_CLIENT_ID: "libreno-client",
   OIDC_CLIENT_SECRET: "client-secret",
 };
 
@@ -108,14 +108,14 @@ export function setCookies(res: Response): Record<string, SetCookie> {
   return result;
 }
 
-export type SessionCookies = { "__Host-holocovia_at": string; "__Host-holocovia_rt": string };
+export type SessionCookies = { "__Host-libreno_at": string; "__Host-libreno_rt": string };
 
 export function sessionCookies(res: Response): SessionCookies {
   const cookies = setCookies(res);
-  const at = cookies["__Host-holocovia_at"]?.value;
-  const rt = cookies["__Host-holocovia_rt"]?.value;
+  const at = cookies["__Host-libreno_at"]?.value;
+  const rt = cookies["__Host-libreno_rt"]?.value;
   if (!at || !rt) throw new Error(`session cookies are missing: ${res.headers.getSetCookie().join(" | ")}`);
-  return { "__Host-holocovia_at": at, "__Host-holocovia_rt": rt };
+  return { "__Host-libreno_at": at, "__Host-libreno_rt": rt };
 }
 
 export async function createUser(params: {

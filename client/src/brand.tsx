@@ -27,7 +27,7 @@ function Symbol() {
 }
 
 // The logo for the header: the horizontal logo, or the symbol alone on narrow screens (CSS chooses).
-// Decorative: the link around it is named "holocovia".
+// Decorative: the link around it is named "libreno".
 export function BrandLogo() {
   return (
     <>

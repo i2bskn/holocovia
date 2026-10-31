@@ -25,11 +25,11 @@ export function Layout(props: { title: string; children?: Child }) {
         <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         <link rel="stylesheet" href="/server-pages.css" />
-        <title>{`${props.title} - holocovia`}</title>
+        <title>{`${props.title} - libreno`}</title>
       </head>
       <body>
         <div class="shell">
-          <a href="/" class="brand" aria-label="holocovia">
+          <a href="/" class="brand" aria-label="libreno">
             <svg class="brand-horizontal" viewBox={HORIZONTAL_VIEW_BOX} aria-hidden="true" focusable="false">
               <g
                 class="brand-symbol"

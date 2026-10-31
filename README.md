@@ -1,10 +1,10 @@
-# Holocovia
+# Libreno
 
 **チームの情報を、AIと一緒に育てる場所。**
 
-Holocoviaは小さなチームのための情報共有ツールです。チームで共有したいことは種類を問わず1か所にまとめておけます。
+Librenoは小さなチームのための情報共有ツールです。チームで共有したいことは種類を問わず1か所にまとめておけます。
 
-AIが書いて、チームが読む。これがHolocoviaの基本の考え方です。
+AIが書いて、チームが読む。これがLibrenoの基本の考え方です。
 
 ### 書くのはAIに任せる
 
@@ -26,7 +26,7 @@ Cloudflare Workers・D1・R2の上で動きます。「Deploy to Cloudflare」�
 
 **デプロイの前にCloudflareのダッシュボードでR2を有効にしてください（R2のサブスクリプションを追加します）。** 添付ファイルの保存にR2を使うので、有効にしていないとデプロイが失敗します。
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/i2bskn/holocovia)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/i2bskn/libreno)
 
 ボタンを押すと次のことが行われます。
 
@@ -131,13 +131,13 @@ MCPからページを削除するとゴミ箱に移り、30日のあいだは元
 
 1. Claudeの「設定」→「コネクタ」でカスタムコネクタを追加する。
 2. URLに`<URL>/mcp`を入れて接続する。
-3. 開いたブラウザでholocoviaにログインし、接続を許可する。
+3. 開いたブラウザでlibrenoにログインし、接続を許可する。
 
 Claude Codeで追加する手順は次のとおりです。OIDC認証では`<URL>/mcp`の代わりに`<APP_ORIGIN>/mcp`を使います。
 
-1. `claude mcp add --transport http holocovia <URL>/mcp`を実行する。
-2. Claude Codeで`/mcp`を開き、holocoviaを選んで認証する。
-3. 開いたブラウザでholocoviaにログインし、接続を許可する。
+1. `claude mcp add --transport http libreno <URL>/mcp`を実行する。
+2. Claude Codeで`/mcp`を開き、librenoを選んで認証する。
+3. 開いたブラウザでlibrenoにログインし、接続を許可する。
 
 許可の画面は接続のたびに表示されます。接続の有効期限はOIDC認証で24時間、パスワード認証で30日です。期限が切れたらもう一度接続してください。
 
@@ -150,7 +150,7 @@ Claude Codeで追加する手順は次のとおりです。OIDC認証では`<URL
 ボタンで作ったリポジトリには、このリポジトリの更新が自動では届きません。次の手順で取り込んでください。pushするとWorkers Buildsがマイグレーションを適用してからデプロイします。
 
 ```sh
-git remote add upstream https://github.com/i2bskn/holocovia.git  # 初回だけ
+git remote add upstream https://github.com/i2bskn/libreno.git  # 初回だけ
 git fetch upstream
 git merge upstream/main
 git push

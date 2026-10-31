@@ -1,8 +1,8 @@
 import { sign, verify } from "hono/jwt";
 
 export const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
-const ACCESS_TOKEN_ISSUER = "holocovia";
-const ACCESS_TOKEN_AUDIENCE = "holocovia-web";
+const ACCESS_TOKEN_ISSUER = "libreno";
+const ACCESS_TOKEN_AUDIENCE = "libreno-web";
 const REFRESH_TOKEN_BYTES = 32;
 
 export function base64UrlEncode(bytes: Uint8Array): string {

@@ -213,7 +213,7 @@ async function oidcSessionCookies(user: UserRow): Promise<Cookies> {
   const now = Date.now();
   const session = await issueSession(db, user.id, "oidc", now);
   const at = await signAccessToken({ sub: user.id, sid: session.sessionId }, env.JWT_SECRET ?? "", now);
-  return { "__Host-holocovia_at": at, "__Host-holocovia_rt": session.refreshToken };
+  return { "__Host-libreno_at": at, "__Host-libreno_rt": session.refreshToken };
 }
 
 function oauthApi(origin: string, overrides: Partial<Bindings> = {}) {
@@ -283,7 +283,7 @@ describe("GET /authorize", () => {
 
     // With a refresh token, GET /auth/login renews the session and returns to the same URL.
     const back = await send(`${location.pathname}${location.search}`, {
-      cookies: { "__Host-holocovia_rt": memberCookies["__Host-holocovia_rt"] ?? "" },
+      cookies: { "__Host-libreno_rt": memberCookies["__Host-libreno_rt"] ?? "" },
     });
     expect(back.status).toBe(302);
     expect(back.headers.get("Location")).toBe(`${url.pathname}${url.search}`);
@@ -356,7 +356,7 @@ describe("POST /authorize", () => {
 
   it("requires the web session", async () => {
     const consent = await openConsent(memberCookies);
-    const { "__Host-holocovia_at": _at, ...withoutSession } = consent.cookies;
+    const { "__Host-libreno_at": _at, ...withoutSession } = consent.cookies;
     const res = await send("/authorize", { cookies: withoutSession, form: { handle: consent.handle, decision: "approve" } });
     expect(res.status).toBe(401);
   });
@@ -382,7 +382,7 @@ describe("MCP", () => {
     });
     expect(init.status).toBe(200);
     const initBody = (await init.json()) as { result: { serverInfo: { name: string } } };
-    expect(initBody.result.serverInfo.name).toBe("holocovia");
+    expect(initBody.result.serverInfo.name).toBe("libreno");
 
     const list = await mcpRequest(access_token, "tools/list");
     expect(list.status).toBe(200);
@@ -1778,7 +1778,7 @@ describe("origins and configuration", () => {
 
   it("uses the helpers of the request's origin when the env object is reused", async () => {
     const shared: Cloudflare.Env = { ...env };
-    const other = "https://second.holocovia.test";
+    const other = "https://second.libreno.test";
     const first = await authorizeClient(memberCookies, { sharedEnv: shared });
     const second = await authorizeClient(memberCookies, { origin: other, sharedEnv: shared });
     expect(first.resource).toBe(`${ORIGIN}/mcp`);

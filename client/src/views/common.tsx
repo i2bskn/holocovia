@@ -5,7 +5,7 @@ import { SpaceKindIcon } from "../icons";
 import { Link } from "../Link";
 import type { ViewState } from "../load";
 
-const APP_NAME = "holocovia";
+const APP_NAME = "libreno";
 
 // Sets document.title. null keeps the current title (while loading).
 export function useDocumentTitle(title: string | null): void {

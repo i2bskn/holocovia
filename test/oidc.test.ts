@@ -255,7 +255,7 @@ describe("OIDC flow with a mocked IdP", () => {
     expect(res.status).toBe(302);
     const location = new URL(res.headers.get("Location") ?? "");
     pendingNonce = location.searchParams.get("nonce") ?? "";
-    const oidcCookie = setCookies(res)["__Host-holocovia_oidc"];
+    const oidcCookie = setCookies(res)["__Host-libreno_oidc"];
     expect(oidcCookie?.maxAge).toBe(600);
     return { location, oidcCookie: oidcCookie?.value ?? "" };
   }
@@ -263,7 +263,7 @@ describe("OIDC flow with a mocked IdP", () => {
   function callback(query: string, oidcCookie?: string, env: Partial<Bindings> = oidcEnv) {
     return send(`${OIDC_ORIGIN}/auth/oidc/callback?${query}`, {
       env,
-      cookies: oidcCookie ? { "__Host-holocovia_oidc": oidcCookie } : undefined,
+      cookies: oidcCookie ? { "__Host-libreno_oidc": oidcCookie } : undefined,
     });
   }
 
@@ -279,9 +279,9 @@ describe("OIDC flow with a mocked IdP", () => {
     const res = await callback(`code=abc&state=${state}`, oidcCookie);
     expect(res.status).toBe(303);
     expect(res.headers.get("Location")).toBe("/wiki");
-    expect(setCookies(res)["__Host-holocovia_oidc"]?.maxAge).toBe(0);
+    expect(setCookies(res)["__Host-libreno_oidc"]?.maxAge).toBe(0);
     const cookies = sessionCookies(res);
-    expect(setCookies(res)["__Host-holocovia_rt"]?.maxAge).toBe(24 * 60 * 60);
+    expect(setCookies(res)["__Host-libreno_rt"]?.maxAge).toBe(24 * 60 * 60);
 
     expect(tokenRequests).toHaveLength(1);
     expect(tokenRequests[0]?.authorization).toMatch(/^Basic /);
@@ -326,7 +326,7 @@ describe("OIDC flow with a mocked IdP", () => {
     const { oidcCookie } = await startLogin();
     const mismatch = await callback("code=abc&state=wrong", oidcCookie);
     expect(mismatch.status).toBe(400);
-    expect(setCookies(mismatch)["__Host-holocovia_oidc"]?.maxAge).toBe(0);
+    expect(setCookies(mismatch)["__Host-libreno_oidc"]?.maxAge).toBe(0);
     expect((await callback("code=abc&state=wrong")).status).toBe(400);
     expect((await callback("error=access_denied&state=wrong")).status).toBe(400);
     expect(tokenRequests).toHaveLength(0);
@@ -391,23 +391,23 @@ describe("OIDC flow with a mocked IdP", () => {
     const login = await send(`${OIDC_ORIGIN}/auth/login`, { env });
     const location = new URL(login.headers.get("Location") ?? "");
     pendingNonce = location.searchParams.get("nonce") ?? "";
-    const oidcCookie = setCookies(login)["__Host-holocovia_oidc"]?.value ?? "";
+    const oidcCookie = setCookies(login)["__Host-libreno_oidc"]?.value ?? "";
     const res = await send(`${OIDC_ORIGIN}/auth/oidc/callback?code=abc&state=${location.searchParams.get("state")}`, {
       env,
-      cookies: { "__Host-holocovia_oidc": oidcCookie },
+      cookies: { "__Host-libreno_oidc": oidcCookie },
     });
     expect(res.status).toBe(403);
     expect(await db.query.users.findMany()).toHaveLength(0);
   });
 
   it("unifies the host for GET and returns 404 for other methods", async () => {
-    const res = await send("https://holocovia.workers.dev/auth/login?next=/x", { env: oidcEnv });
+    const res = await send("https://libreno.workers.dev/auth/login?next=/x", { env: oidcEnv });
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toBe(`${OIDC_ORIGIN}/auth/login?next=/x`);
-    const setup = await send("https://holocovia.workers.dev/auth/setup", { env: oidcEnv });
+    const setup = await send("https://libreno.workers.dev/auth/setup", { env: oidcEnv });
     expect(setup.status).toBe(302);
     expect(setup.headers.get("Location")).toBe(`${OIDC_ORIGIN}/auth/setup`);
-    const post = await send("https://holocovia.workers.dev/auth/logout", { method: "POST", env: oidcEnv });
+    const post = await send("https://libreno.workers.dev/auth/logout", { method: "POST", env: oidcEnv });
     expect(post.status).toBe(404);
   });
 });

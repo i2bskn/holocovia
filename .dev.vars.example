@@ -15,7 +15,7 @@ JWT_SECRET=
 # Required only when AUTH_MODE=oidc.
 # APP_ORIGIN=https://wiki.example.com
 # OIDC_ISSUER=https://idp.example.com
-# OIDC_CLIENT_ID=holocovia
+# OIDC_CLIENT_ID=libreno
 # OIDC_CLIENT_SECRET=dummy-secret
 
 # Optional allowlist for AUTH_MODE=oidc. Comma separated emails or domains.

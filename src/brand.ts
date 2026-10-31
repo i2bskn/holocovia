@@ -1,5 +1,6 @@
-// The holocovia logo (Bridge / v1): the initial H joined by a wave-shaped bridge, and the lowercase name set in
-// Helvetica Neue Bold converted to outlines. Shared by the SPA (client/src/brand.tsx) and the screens served by
+// The logo (Bridge / v1): the initial H joined by a wave-shaped bridge, and the lowercase name set in
+// Helvetica Neue Bold converted to outlines.
+// TODO: still the logo of the former name "holocovia" (the H and the wordmark); replace with the libreno logo. Shared by the SPA (client/src/brand.tsx) and the screens served by
 // the Worker (src/views/layout.tsx). This module must not import anything, because the client bundles it.
 
 // The symbol, in a 128 × 128 box that includes the clearance around it. Drawn as strokes.

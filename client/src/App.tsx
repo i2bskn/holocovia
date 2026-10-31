@@ -110,7 +110,7 @@ function Screen({ route, user }: { route: Route; user: User }) {
 }
 
 function RouteNotFound() {
-  useDocumentTitle("見つかりません - holocovia");
+  useDocumentTitle("見つかりません - libreno");
   useSidebarLocation(null);
   return <NotFound message="ページが見つかりません" />;
 }
@@ -158,7 +158,7 @@ function Header({ user, route, path }: { user: User; route: Route; path: string 
         </button>
         <Link to="/" className="brand">
           <BrandLogo />
-          <span className="sr-only">holocovia</span>
+          <span className="sr-only">libreno</span>
         </Link>
         {/* action and method are used when JavaScript does not run; /search is served by the SPA. */}
         <form role="search" className="search-form" action="/search" method="get" onSubmit={onSearch}>

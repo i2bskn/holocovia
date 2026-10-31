@@ -73,8 +73,8 @@ const DRAFT: PageDraft = { title: "手順", body: "# 手順", folderId: "f1", ba
 
 describe("draft keys", () => {
   it("include the user and the page or space", () => {
-    expect(pageDraftKey("u1", "p1")).toBe("holocovia:draft:u1:page:p1");
-    expect(newPageDraftKey("u1", "s1")).toBe("holocovia:draft:u1:new:s1");
+    expect(pageDraftKey("u1", "p1")).toBe("libreno:draft:u1:page:p1");
+    expect(newPageDraftKey("u1", "s1")).toBe("libreno:draft:u1:new:s1");
   });
 });
 
@@ -118,11 +118,11 @@ describe("writeDraft and readDraft", () => {
     storage.setItem(pageDraftKey("u2", "old2"), JSON.stringify(old));
     storage.setItem(newPageDraftKey("u3", "old3"), JSON.stringify(old));
     storage.setItem(pageDraftKey("u2", "fresh"), JSON.stringify(DRAFT));
-    storage.setItem("holocovia:draft:u1:page:broken", "{");
+    storage.setItem("libreno:draft:u1:page:broken", "{");
     storage.setItem("other:key", JSON.stringify(old));
     expect(writeDraft(storage, KEY, DRAFT)).toBe(true);
     expect([...storage.items.keys()].sort()).toEqual(
-      [pageDraftKey("u2", "fresh"), "holocovia:draft:u1:page:broken", "other:key", KEY].sort(),
+      [pageDraftKey("u2", "fresh"), "libreno:draft:u1:page:broken", "other:key", KEY].sort(),
     );
   });
 

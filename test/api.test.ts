@@ -61,8 +61,8 @@ describe("GET /api/v1/me", () => {
 
   it("returns 401 without or with a tampered token", async () => {
     expect((await send("/api/v1/me")).status).toBe(401);
-    const tampered = `${memberCookies["__Host-holocovia_at"]}x`;
-    const res = await send("/api/v1/me", { cookies: { "__Host-holocovia_at": tampered } });
+    const tampered = `${memberCookies["__Host-libreno_at"]}x`;
+    const res = await send("/api/v1/me", { cookies: { "__Host-libreno_at": tampered } });
     expect(res.status).toBe(401);
     expect(await res.json()).toEqual({ error: { code: "unauthorized", message: expect.any(String) } });
   });
@@ -74,9 +74,9 @@ describe("GET /api/v1/me", () => {
       "another-secret-another-secret-another-secret",
       Date.now(),
     );
-    expect((await send("/api/v1/me", { cookies: { "__Host-holocovia_at": wrongSecret } })).status).toBe(401);
+    expect((await send("/api/v1/me", { cookies: { "__Host-libreno_at": wrongSecret } })).status).toBe(401);
     const valid = await signAccessToken({ sub: member.id, sid: session.sessionId }, env.JWT_SECRET ?? "", Date.now());
-    expect((await send("/api/v1/me", { cookies: { "__Host-holocovia_at": valid } })).status).toBe(200);
+    expect((await send("/api/v1/me", { cookies: { "__Host-libreno_at": valid } })).status).toBe(200);
   });
 });
 
@@ -127,7 +127,7 @@ describe("POST /api/v1/me/password", () => {
     const session = await issueSession(db, oidcUser.id, "password", Date.now());
     const at = await signAccessToken({ sub: oidcUser.id, sid: session.sessionId }, env.JWT_SECRET ?? "", Date.now());
     const res = await send("/api/v1/me/password", {
-      cookies: { "__Host-holocovia_at": at },
+      cookies: { "__Host-libreno_at": at },
       json: { current_password: PASSWORD, new_password: NEW_PASSWORD },
     });
     expect(res.status).toBe(400);
@@ -165,7 +165,7 @@ describe("admin user API", () => {
     });
     expect(res.status).toBe(201);
     expect(await res.json()).toMatchObject({ email: "new@example.com", name: "New", role: "member", last_login_at: null });
-    expect((await login("new@example.com", NEW_PASSWORD))["__Host-holocovia_at"]).toBeTruthy();
+    expect((await login("new@example.com", NEW_PASSWORD))["__Host-libreno_at"]).toBeTruthy();
   });
 
   it("POST /api/v1/users creates exactly one personal space", async () => {
@@ -284,7 +284,7 @@ describe("middleware order", () => {
     const now = Date.now();
     const session = await issueSession(db, user.id, "oidc", now);
     const at = await signAccessToken({ sub: user.id, sid: session.sessionId }, env.JWT_SECRET ?? "", now);
-    return { "__Host-holocovia_at": at, "__Host-holocovia_rt": session.refreshToken };
+    return { "__Host-libreno_at": at, "__Host-libreno_rt": session.refreshToken };
   }
 
   it("returns 404 before 403 for a member calling a password-only admin API in oidc mode", async () => {
