@@ -344,6 +344,14 @@ export type AttachmentList = {
   attachments: Attachment[];
 };
 
+// The pages whose body contains "/pages/{id}" of the page, in spaces the viewer can access and not in the trash.
+export type BacklinkList = {
+  // Most recently updated first.
+  pages: PageSummary[];
+  // true when more than 50 pages link to the page; only the first 50 are returned.
+  has_more: boolean;
+};
+
 
 // The page shown at the top of the home screen, the same for every signed-in user. null when none is set, or
 // while the chosen page is not in an everyone space or is in the trash.

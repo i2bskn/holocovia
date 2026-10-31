@@ -6,6 +6,7 @@ import {
   hasNewPageInput,
   hasPageChanges,
   insertMarkdown,
+  markdownLinkToPage,
   pageChanges,
 } from "./edit";
 import { descendantIds } from "./folders";
@@ -149,5 +150,23 @@ describe("insertMarkdown", () => {
     expect(first).toEqual({ body: "one\n\nA\n\ntwo", cursor: 6 });
     const second = insertMarkdown(first.body, { start: first.cursor, end: first.cursor }, "B");
     expect(second.body).toBe("one\n\nA\n\nB\n\ntwo");
+  });
+});
+
+describe("markdownLinkToPage", () => {
+  const id = "00000000-0000-4000-8000-000000000001";
+
+  it("links to the page with its title", () => {
+    expect(markdownLinkToPage("手順書", id)).toBe(`[手順書](/pages/${id})`);
+  });
+
+  it.each([
+    ["[a] b", "\\[a\\] b"],
+    ["a\\b", "a\\\\b"],
+    ["<https://x.example>", "\\<https://x.example\\>"],
+    ["`code`", "\\`code\\`"],
+    ["*a* _b_", "\\*a\\* \\_b\\_"],
+  ])("escapes %s", (title, escaped) => {
+    expect(markdownLinkToPage(title, id)).toBe(`[${escaped}](/pages/${id})`);
   });
 });

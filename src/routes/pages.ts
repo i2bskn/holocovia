@@ -1,6 +1,7 @@
 import { Hono, type Context } from "hono";
 import type {
   AttachmentList,
+  BacklinkList,
   CreatePageInput,
   CreatePageRequest,
   MovePageInput,
@@ -29,6 +30,7 @@ import {
   normalizeMoveSpaceId,
   parentNotFoundOnMoveMessage,
 } from "../folders/validation";
+import { listBacklinks } from "../pages/backlinks";
 import { findAccessiblePage } from "../pages/queries";
 import { findAccessiblePageRevision, listAccessiblePageRevisions, restorePageRevision } from "../pages/revisions";
 import { movePage, updatePage } from "../pages/service";
@@ -50,7 +52,14 @@ import {
   revisionNotFoundMessage,
   versionConflictMessage,
 } from "../pages/validation";
-import { jsonBody, toApiAttachment, toApiPage, toApiPageRevision, toApiPageRevisionSummary } from "./api";
+import {
+  jsonBody,
+  toApiAttachment,
+  toApiPage,
+  toApiPageRevision,
+  toApiPageRevisionSummary,
+  toApiPageSummary,
+} from "./api";
 import { attachmentBodyLimit, attachmentFilenameQuery } from "./attachments";
 
 function invalidTitle(c: Context<AppEnv>): Response {
@@ -179,6 +188,13 @@ const pagesApi = new Hono<AppEnv>()
     if (result.error === "not_found") return apiError(c, 404, "not_found", pageNotFoundMessage);
     if (result.error === "revision_not_found") return apiError(c, 404, "revision_not_found", revisionNotFoundMessage);
     return apiError(c, 409, "version_conflict", versionConflictMessage);
+  })
+  // The pages that link to the page. See pages/backlinks.ts for what counts as a link.
+  .get("/:id/backlinks", requireUser, async (c) => {
+    const result = await listBacklinks(c.get("db"), c.get("user"), c.req.param("id"));
+    if (!result.ok) return apiError(c, 404, "not_found", pageNotFoundMessage);
+    const body: BacklinkList = { pages: result.pages.map(toApiPageSummary), has_more: result.hasMore };
+    return c.json(body, 200);
   })
   .get("/:id/attachments", requireUser, async (c) => {
     const result = await listAttachments(c.get("db"), c.get("user"), c.req.param("id"));

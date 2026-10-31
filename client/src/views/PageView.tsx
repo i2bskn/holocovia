@@ -1,10 +1,11 @@
-import { type FormEvent, useEffect, useState } from "react";
-import type { Page, Space } from "../../../src/api/types";
+import { type FormEvent, useEffect, useId, useRef, useState } from "react";
+import type { Page, PageSummary, Space } from "../../../src/api/types";
 import { movePage, setTopPage, trashPage } from "../actions";
+import { markdownLinkToPage } from "../edit";
 import { formatDateTime, spaceDisplayName, widerVisibilityWarning } from "../format";
 import { folderPath } from "../folders";
 import { Link } from "../Link";
-import { type ApiClient, type ListResult, loadPageView, loadTopPage, useView } from "../load";
+import { type ApiClient, type ListResult, loadBacklinks, loadPageView, loadTopPage, useView } from "../load";
 import { Markdown } from "../Markdown";
 import { isValidId, navigate } from "../router";
 import { ViewStatus, useDocumentTitle, viewTitle } from "./common";
@@ -27,7 +28,13 @@ export function PageView({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   // Whether the panel to move the page is shown.
   const [moving, setMoving] = useState(false);
+  const [copy, setCopy] = useState<CopyState>({ kind: "idle" });
   useDocumentTitle(viewTitle(state, (data) => data.page.title));
+
+  // The result of copying the link is about the page it was copied from.
+  useEffect(() => {
+    setCopy({ kind: "idle" });
+  }, [id]);
 
   if (state.kind !== "ready") {
     return <ViewStatus state={state} notFoundMessage="ページが見つかりません" onReload={reload} />;
@@ -63,6 +70,13 @@ export function PageView({
             <Link to={`/pages/${page.id}/history`} className="page-history-link">
               履歴
             </Link>
+            <button
+              type="button"
+              className="page-copy-link-button"
+              onClick={() => void copyLink(markdownLinkToPage(page.title, page.id), setCopy)}
+            >
+              リンクをコピー
+            </button>
           </>
         )}
         {!moving && (
@@ -76,6 +90,9 @@ export function PageView({
           </button>
         )}
       </p>
+      {/* Outside the p above, which cannot contain these. */}
+      {copy.kind === "copied" && <p role="status">コピーしました</p>}
+      {copy.kind === "failed" && <CopyFallback markdown={copy.markdown} />}
       {/* Only pages in an everyone space can be shown at the top; the server checks it again. */}
       {isAdmin && space?.kind === "everyone" && <TopPageButton client={client} page={page} />}
       {moving && (
@@ -92,7 +109,93 @@ export function PageView({
       )}
       {confirmingDelete && <TrashPage client={client} page={page} onCancel={() => setConfirmingDelete(false)} />}
       <Markdown body={page.body} origin={origin} />
+      <Backlinks client={client} pageId={page.id} />
     </main>
+  );
+}
+
+type CopyState = { kind: "idle" } | { kind: "copied" } | { kind: "failed"; markdown: string };
+
+// Writes the Markdown link to the clipboard. The clipboard API is missing outside secure contexts and can
+// reject, for example when the permission is denied; then the link is shown to be copied by hand.
+async function copyLink(markdown: string, setCopy: (state: CopyState) => void): Promise<void> {
+  // The result of the previous click is cleared.
+  setCopy({ kind: "idle" });
+  try {
+    if (typeof navigator.clipboard?.writeText !== "function") throw new Error("no clipboard API");
+    await navigator.clipboard.writeText(markdown);
+    setCopy({ kind: "copied" });
+  } catch {
+    setCopy({ kind: "failed", markdown });
+  }
+}
+
+// The link in a read-only input, selected so that it can be copied with the keyboard or the menu.
+function CopyFallback({ markdown }: { markdown: string }) {
+  const input = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    input.current?.select();
+  }, [markdown]);
+
+  return (
+    <div className="copy-fallback">
+      <p role="alert">コピーできませんでした。選択してコピーしてください</p>
+      <input
+        ref={input}
+        type="text"
+        readOnly
+        value={markdown}
+        aria-label="ページへのリンク"
+        onFocus={(event) => event.currentTarget.select()}
+      />
+    </div>
+  );
+}
+
+type BacklinksState = { kind: "loading" } | ListResult<{ pages: PageSummary[]; hasMore: boolean }>;
+
+// The pages that link to the page, loaded separately so that a failure does not hide the page.
+function Backlinks({ client, pageId }: { client: ApiClient; pageId: string }) {
+  const [state, setState] = useState<BacklinksState>({ kind: "loading" });
+  const headingId = useId();
+
+  useEffect(() => {
+    let cancelled = false;
+    setState({ kind: "loading" });
+    void loadBacklinks(client, pageId).then((next) => {
+      if (!cancelled) setState(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // client does not change while the screen is shown.
+  }, [pageId]);
+
+  // The move to the login page has started.
+  if (state.kind === "redirecting") return null;
+  return (
+    <section className="backlinks" aria-labelledby={headingId}>
+      <h2 id={headingId}>このページへのリンク</h2>
+      {state.kind === "loading" && <p>読み込み中…</p>}
+      {state.kind === "error" && <p>リンクの一覧を読み込めませんでした</p>}
+      {state.kind === "ok" && state.value.pages.length === 0 && <p>このページへのリンクはありません</p>}
+      {state.kind === "ok" && state.value.pages.length > 0 && (
+        <ul className="backlinks-list">
+          {state.value.pages.map((linking) => (
+            <li key={linking.id}>
+              <span className="backlinks-title">
+                {isValidId(linking.id) ? <Link to={`/pages/${linking.id}`}>{linking.title}</Link> : linking.title}
+              </span>
+              <span className="page-meta">
+                <time dateTime={new Date(linking.updated_at).toISOString()}>{formatDateTime(linking.updated_at)}</time>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {state.kind === "ok" && state.value.hasMore && <p>ほかにもあります（新しい 50 件を表示しています）</p>}
+    </section>
   );
 }
 

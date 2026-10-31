@@ -295,7 +295,8 @@ export async function loadUsersView(client: ApiClient): Promise<Loaded<UsersData
   return { kind: "ready", data: { users: list.value.users, authMode: list.value.auth_mode } };
 }
 
-// A list loaded by a part of a screen (the move panels and the attachments panel), not by the screen itself.
+// A list loaded by a part of a screen (the move panels, the attachments panel and the links to a page), not by
+// the screen itself.
 export type ListResult<T> = { kind: "ok"; value: T } | { kind: "error" } | { kind: "redirecting" };
 
 // The spaces the user can access, to choose the destination of a move from. Never rejects.
@@ -322,6 +323,19 @@ export async function loadAttachmentList(client: ApiClient, pageId: string): Pro
   if (list.kind === "redirecting") return list;
   if (list.kind !== "ok") return { kind: "error" };
   return { kind: "ok", value: list.value.attachments };
+}
+
+// The pages that link to a page, for the section at the end of the page screen. A 404 is an error, as the
+// section is shown only after the page itself was loaded. Never rejects.
+export async function loadBacklinks(
+  client: ApiClient,
+  pageId: string,
+): Promise<ListResult<{ pages: PageSummary[]; hasMore: boolean }>> {
+  if (!isValidId(pageId)) return { kind: "error" };
+  const list = await request(() => client.api.v1.pages[":id"].backlinks.$get({ param: { id: pageId } }));
+  if (list.kind === "redirecting") return list;
+  if (list.kind !== "ok") return { kind: "error" };
+  return { kind: "ok", value: { pages: list.value.pages, hasMore: list.value.has_more } };
 }
 
 // The page shown at the top of the home screen (null when none), for the button of the page screen that

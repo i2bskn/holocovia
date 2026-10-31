@@ -846,6 +846,16 @@ describe("MCP revision tools", () => {
     return [adminPage, othersPage];
   }
 
+  it("describes how to link pages and find the links to a page", async () => {
+    const list = await mcpRequest(token, "tools/list");
+    const body = (await list.json()) as { result: { tools: { name: string; description: string }[] } };
+    const description = (name: string) => body.result.tools.find((t) => t.name === name)?.description ?? "";
+    expect(description("get_page")).toContain("[title](/pages/{page_id})");
+    expect(description("get_page")).toContain("call search_pages with the query /pages/{page_id}");
+    expect(description("create_page")).toContain("Link to other pages with [title](/pages/{page_id}).");
+    expect(description("update_page")).toContain("Link to other pages with [title](/pages/{page_id}).");
+  });
+
   it("describes update_page with the revisions", async () => {
     const list = await mcpRequest(token, "tools/list");
     const body = (await list.json()) as { result: { tools: { name: string; description: string }[] } };

@@ -175,7 +175,9 @@ export function registerTools(server: McpServer, { db, user, attachments }: Tool
     "get_page",
     {
       description:
-        "Get a page with its Markdown body and metadata. version is incremented on every update.",
+        "Get a page with its Markdown body and metadata. version is incremented on every update. " +
+        "To link to another page in a body, write [title](/pages/{page_id}). " +
+        "To find the pages that link to a page, call search_pages with the query /pages/{page_id}.",
       inputSchema: { page_id: z.string().describe("The id of a page returned by list_pages") },
       annotations: readOnlyAnnotations,
     },
@@ -225,7 +227,8 @@ export function registerTools(server: McpServer, { db, user, attachments }: Tool
         "Create a page in a space, optionally in a folder of that space. The body is Markdown. " +
         "Returns the new page's metadata (id, version, ...) without the body. " +
         "A page in the personal space (kind=personal) is visible only to the calling user; " +
-        "a page in an 'everyone' space is visible to all users.",
+        "a page in an 'everyone' space is visible to all users. " +
+        "Link to other pages with [title](/pages/{page_id}).",
       inputSchema: {
         space_id: z.string().describe("The id of a space returned by list_spaces"),
         title: z.string().describe("The page title, 1 to 200 characters, without line breaks"),
@@ -269,7 +272,8 @@ export function registerTools(server: McpServer, { db, user, attachments }: Tool
         "the call fails and nothing is changed. body replaces the whole body. " +
         "The previous title and body are kept as a revision (the newest 20 per page); " +
         "use list_page_revisions and restore_page_revision to go back. " +
-        "Returns the page's metadata without the body.",
+        "Returns the page's metadata without the body. " +
+        "Link to other pages with [title](/pages/{page_id}).",
       inputSchema: {
         page_id: z.string().describe("The id of a page returned by list_pages"),
         // Not z.number().int(): normalizeVersion checks it, so that the message is the same as in the REST API.

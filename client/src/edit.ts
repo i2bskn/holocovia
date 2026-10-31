@@ -1,4 +1,6 @@
 import type { Folder } from "../../src/api/types";
+// A value import from the server code: validation.ts imports nothing else, so no other server code is bundled.
+import { escapeMarkdownText } from "../../src/attachments/validation";
 import { folderPath } from "./folders";
 
 // The inputs of the page form. folderId null is the top level of the space.
@@ -72,4 +74,9 @@ export function insertMarkdown(
   const after = body.slice(end);
   const head = `${before}${lineBreaksToAdd(before, /\n*$/)}${markdown}`;
   return { body: `${head}${lineBreaksToAdd(after, /^\n*/)}${after}`, cursor: head.length };
+}
+
+// A Markdown link to a page, to paste into another page. The title is escaped so that it is shown as it is.
+export function markdownLinkToPage(title: string, id: string): string {
+  return `[${escapeMarkdownText(title)}](/pages/${id})`;
 }

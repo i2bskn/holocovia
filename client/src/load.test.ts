@@ -12,6 +12,7 @@ import type {
 } from "../../src/api/types";
 import { createApiClient, createApiFetch } from "./api";
 import {
+  loadBacklinks,
   loadFolderView,
   loadHomeView,
   loadPageEditView,
@@ -151,6 +152,32 @@ describe("loadTopPage", () => {
   it("is an error when the request fails", async () => {
     const { client } = setup({ "/api/v1/top-page": [apiError(500, "サーバーでエラーが発生しました")] });
     expect(await loadTopPage(client)).toEqual({ kind: "error" });
+  });
+});
+
+describe("loadBacklinks", () => {
+  const id = "00000000-0000-4000-8000-000000000001";
+  const url = `/api/v1/pages/${id}/backlinks`;
+
+  it("is ok with the pages and has_more", async () => {
+    const { client } = setup({ [url]: [json(200, { pages: [SUMMARY], has_more: true })] });
+    expect(await loadBacklinks(client, id)).toEqual({ kind: "ok", value: { pages: [SUMMARY], hasMore: true } });
+  });
+
+  it("is an error when the page is 404", async () => {
+    const { client } = setup({ [url]: [apiError(404, "ページが見つかりません")] });
+    expect(await loadBacklinks(client, id)).toEqual({ kind: "error" });
+  });
+
+  it("is an error when the request fails", async () => {
+    const { client } = setup({ [url]: [apiError(500, "サーバーでエラーが発生しました")] });
+    expect(await loadBacklinks(client, id)).toEqual({ kind: "error" });
+  });
+
+  it("is an error without a request for an invalid id", async () => {
+    const { client, fetch } = setup({});
+    expect(await loadBacklinks(client, "../x")).toEqual({ kind: "error" });
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
 

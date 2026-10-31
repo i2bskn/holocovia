@@ -356,8 +356,51 @@ a {
 }
 
 .page-move-button,
-.page-delete-button {
+.page-delete-button,
+.page-copy-link-button {
   margin-left: 0.5rem;
+}
+
+.copy-fallback p {
+  margin: 0.5rem 0;
+}
+
+.copy-fallback input {
+  box-sizing: border-box;
+  width: 100%;
+  font: inherit;
+  padding: 0.25rem 0.5rem;
+}
+
+.backlinks {
+  margin: 2rem 0 1rem;
+  border-top: 1px solid #ddd;
+}
+
+.backlinks h2 {
+  margin: 1rem 0 0.5rem;
+  font-size: 1.125rem;
+}
+
+.backlinks-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.backlinks-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0 1rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #eee;
+}
+
+.backlinks-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .trash-link {

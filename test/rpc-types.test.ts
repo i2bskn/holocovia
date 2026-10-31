@@ -3,6 +3,7 @@ import { describe, expectTypeOf, it } from "vitest";
 import type {
   Attachment,
   AttachmentList,
+  BacklinkList,
   CreateFolderRequest,
   CreatePageRequest,
   CreateSpaceRequest,
@@ -174,6 +175,12 @@ describe("AppType", () => {
     >().toEqualTypeOf<AttachmentList>();
     const param: InferRequestType<(typeof client.api.v1.attachments)[":id"]["$delete"]>["param"] = { id: "a1" };
     void param;
+  });
+
+  it("types the links to a page", () => {
+    expectTypeOf<
+      InferResponseType<(typeof client.api.v1.pages)[":id"]["backlinks"]["$get"], 200>
+    >().toEqualTypeOf<BacklinkList>();
   });
 
   it("types the deletion of a user", () => {
